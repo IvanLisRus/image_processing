@@ -17,9 +17,9 @@ jobs:
         
       - name: Build SO
         run: |
-          mkdir build && cd build
+          mkdir -p build && cd build
           cmake -DCMAKE_BUILD_TYPE=Release ..
-          make
+          make -j$(nproc)
           
       - name: Upload Linux Artifact
         uses: actions/upload-artifact@v4
@@ -36,39 +36,42 @@ jobs:
         shell: pwsh
         run: |
           Write-Host "=== 1. Downloading OpenCV 4.10.0 ==="
-          curl.exe -L -o opencv.exe https://github.com/opencv/opencv/releases/download/4.10.0/opencv-4.10.0-windows.exe
-          if ($LASTEXITCODE -ne 0) { throw "Download failed with code $LASTEXITCODE" }
+          # Invoke-WebRequest надежнее для GitHub Releases в среде Windows
+          Invoke-WebRequest -Uri "https://github.com/opencv/opencv/releases/download/4.10.0/opencv-4.10.0-windows.exe" -OutFile "opencv.exe"
           
-          Write-Host "=== 2. Extracting OpenCV ==="
-          7z x opencv.exe -o.\opencv -y
-          if ($LASTEXITCODE -ne 0) { throw "Extraction failed with code $LASTEXITCODE" }
+          Write-Host "=== 2. Verifying download size ==="
+          $file = Get-Item "opencv.exe"
+          if ($file.Length -lt 100MB) {
+            throw "Downloaded file is too small ($($file.Length) bytes). Download likely failed or returned HTML."
+          }
           
-          Write-Host "=== 3. Verifying extraction ==="
-          Get-ChildItem .\opencv\opencv\build
+          Write-Host "=== 3. Extracting OpenCV to C:\opencv ==="
+          # 7z предустановлен на windows-latest
+          7z x opencv.exe -oC:\opencv -y
+          
+          Write-Host "=== 4. Verifying extraction ==="
+          if (!(Test-Path "C:\opencv\opencv\build")) {
+            throw "OpenCV build directory not found at C:\opencv\opencv\build after extraction!"
+          }
+          Write-Host "OpenCV extracted successfully."
 
       - name: Build DLL
         shell: pwsh
         run: |
-          # Используем прямые слеши, чтобы CMake корректно обрабатывал пути в Windows
-          $opencv_dir = "$env:GITHUB_WORKSPACE/opencv/opencv/build"
-          Write-Host "=== 4. Configuring CMake with OpenCV_DIR: $opencv_dir ==="
-          
-          if (!(Test-Path $opencv_dir)) {
-            throw "OpenCV directory not found at $opencv_dir"
-          }
-          
+          Write-Host "=== 5. Configuring CMake ==="
           mkdir build
           cd build
           
-          cmake -G "Visual Studio 17 2022" -A x64 "-DOpenCV_DIR=$opencv_dir" ..
+          # Используем жесткий абсолютный путь с прямыми слешами (CMake это любит)
+          cmake -G "Visual Studio 17 2022" -A x64 -DOpenCV_DIR:PATH="C:/opencv/opencv/build" ..
           if ($LASTEXITCODE -ne 0) { throw "CMake configuration failed" }
           
-          Write-Host "=== 5. Building Release ==="
-          cmake --build . --config Release
+          Write-Host "=== 6. Building Release ==="
+          cmake --build . --config Release --parallel
           if ($LASTEXITCODE -ne 0) { throw "CMake build failed" }
           
-          Write-Host "=== 6. Verifying output ==="
-          Get-ChildItem .\Release\*.dll
+          Write-Host "=== 7. Verifying output ==="
+          Get-ChildItem -Path ".\Release\*.dll"
 
       - name: Upload Windows Artifact
         uses: actions/upload-artifact@v4
