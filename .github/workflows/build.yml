@@ -24,8 +24,9 @@ jobs:
       - name: Upload Linux Artifact
         uses: actions/upload-artifact@v4
         with:
-          name: letterbox-linux
-          path: build/libletterbox.so
+          name: image-processing-linux
+          # ИСПРАВЛЕНО: правильное имя файла, которое генерирует CMake
+          path: build/libimage_processing.so
 
   build-windows:
     runs-on: windows-latest
@@ -34,20 +35,21 @@ jobs:
       
       - name: Download OpenCV
         run: |
-          # Скачиваем готовую сборку OpenCV 4.9.0 для Windows
-          Invoke-WebRequest -Uri "https://github.com/opencv/opencv/releases/download/4.9.0/opencv-4.9.0-windows.exe" -OutFile "opencv.exe"
-          # Распаковываем её (это самораспаковывающийся архив 7z)
-          7z x opencv.exe -oC:\opencv -y
+          # Скачиваем ZIP-архив вместо EXE для более надежной распаковки
+          Invoke-WebRequest -Uri "https://github.com/opencv/opencv/releases/download/4.9.0/opencv-4.9.0-windows.zip" -OutFile "opencv.zip"
+          # Распаковываем в корень диска C: (получится C:\opencv)
+          Expand-Archive -Path opencv.zip -DestinationPath C:\ -Force
           
       - name: Build DLL
         run: |
           mkdir build
           cd build
-          cmake -G "Visual Studio 17 2022" -A x64 -DOpenCV_DIR="C:/opencv/opencv/build" ..
+          # Путь указывает прямо на папку build внутри распакованного архива
+          cmake -G "Visual Studio 17 2022" -A x64 -DOpenCV_DIR="C:/opencv/build" ..
           cmake --build . --config Release
           
       - name: Upload Windows Artifact
         uses: actions/upload-artifact@v4
         with:
-          name: letterbox-windows
-          path: build/Release/letterbox.dll
+          name: image-processing-windows
+          path: build/Release/image_processing.dll
