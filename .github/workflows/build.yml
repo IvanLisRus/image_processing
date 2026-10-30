@@ -1,0 +1,53 @@
+name: Build Cross-Platform Libraries
+
+on:
+  push:
+    branches: [ main, master ]
+  pull_request:
+    branches: [ main, master ]
+
+jobs:
+  build-linux:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Install dependencies
+        run: sudo apt-get update && sudo apt-get install -y cmake build-essential libopencv-dev
+        
+      - name: Build SO
+        run: |
+          mkdir build && cd build
+          cmake -DCMAKE_BUILD_TYPE=Release ..
+          make
+          
+      - name: Upload Linux Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: letterbox-linux
+          path: build/libletterbox.so
+
+  build-windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Download OpenCV
+        run: |
+          # Скачиваем готовую сборку OpenCV 4.9.0 для Windows
+          Invoke-WebRequest -Uri "https://github.com/opencv/opencv/releases/download/4.9.0/opencv-4.9.0-windows.exe" -OutFile "opencv.exe"
+          # Распаковываем её (это самораспаковывающийся архив 7z)
+          7z x opencv.exe -oC:\opencv -y
+          
+      - name: Build DLL
+        run: |
+          mkdir build
+          cd build
+          cmake -G "Visual Studio 17 2022" -A x64 -DOpenCV_DIR="C:/opencv/opencv/build" ..
+          cmake --build . --config Release
+          
+      - name: Upload Windows Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: letterbox-windows
+          path: build/Release/letterbox.dll
