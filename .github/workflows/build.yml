@@ -29,6 +29,7 @@ jobs:
           echo "=== Подготовка файлов для папки linux_x64 ==="
           mkdir -p linux_x64
           cp build/image_processing.so linux_x64/ || cp build/libimage_processing.so linux_x64/image_processing.so
+          # Копируем ТОЛЬКО необходимые зависимости
           cp /usr/lib/x86_64-linux-gnu/libopencv_core.so* linux_x64/
           cp /usr/lib/x86_64-linux-gnu/libopencv_imgproc.so* linux_x64/
           ls -la linux_x64/
@@ -78,27 +79,38 @@ jobs:
           Write-Host "=== 6. Подготовка файлов для папки windows_x64 ==="
           New-Item -ItemType Directory -Force -Path "windows_x64"
           
+          # Копируем нашу DLL
           Copy-Item -Path "build\Release\image_processing.dll" -Destination "windows_x64\" -Force
           
-          Write-Host "=== Поиск DLL OpenCV ==="
+          # ИСПРАВЛЕНО: Копируем ТОЛЬКО необходимые модули OpenCV (core и imgproc), 
+          # чтобы не превысить лимит GitHub в 100 МБ (избегаем opencv_world*.dll)
+          Write-Host "=== Копирование необходимых DLL OpenCV ==="
           $opencv_build = "C:\opencv\opencv\build"
-          
           $bin_path = Get-ChildItem -Path $opencv_build -Recurse -Directory -Filter "bin" | 
                       Where-Object { $_.FullName -match "x64" } | 
                       Select-Object -First 1 -ExpandProperty FullName
           
           if ($bin_path) {
             Write-Host "Найдена папка bin: $bin_path"
-            Get-ChildItem -Path "$bin_path\opencv_*.dll" | ForEach-Object {
-              Write-Host "Копирование: $($_.Name)"
-              Copy-Item -Path $_.FullName -Destination "windows_x64\" -Force
+            
+            # Явно указываем только нужные файлы
+            $required_dlls = @("opencv_core4100.dll", "opencv_imgproc4100.dll")
+            
+            foreach ($dll in $required_dlls) {
+              $source = Join-Path -Path $bin_path -ChildPath $dll
+              if (Test-Path $source) {
+                Write-Host "Копирование: $dll"
+                Copy-Item -Path $source -Destination "windows_x64\" -Force
+              } else {
+                Write-Host "Внимание: Файл $dll не найден в $bin_path"
+              }
             }
           } else {
             throw "Не удалось найти папку bin OpenCV в $opencv_build"
           }
           
           Write-Host "Файлы в папке windows_x64:"
-          Get-ChildItem -Path "windows_x64\*.dll" | Select-Object Name
+          Get-ChildItem -Path "windows_x64\*.dll" | Select-Object Name, @{Name="Size(MB)";Expression={[math]::Round($_.Length/1MB, 2)}}
       
       - name: Upload Windows Binaries
         uses: actions/upload-artifact@v4
