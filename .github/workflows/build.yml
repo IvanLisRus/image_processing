@@ -6,6 +6,7 @@ on:
   pull_request:
     branches: [ main, master ]
 
+# Разрешаем воркфлоу записывать изменения (делать коммиты) в репозиторий
 permissions:
   contents: write
 
@@ -28,8 +29,10 @@ jobs:
         run: |
           echo "=== Подготовка файлов для папки linux_x64 ==="
           mkdir -p linux_x64
-          cp build/image_processing.so linux_x64/ || cp build/libimage_processing.so linux_x64/image_processing.so
-          # Копируем ТОЛЬКО необходимые зависимости
+          # Копируем нашу библиотеку (CMakeLists.txt убирает префикс lib только на Windows,
+          # поэтому на Linux может быть libimage_processing.so)
+          cp build/image_processing.so linux_x64/ 2>/dev/null || cp build/libimage_processing.so linux_x64/image_processing.so
+          # Копируем ТОЛЬКО необходимые зависимости OpenCV
           cp /usr/lib/x86_64-linux-gnu/libopencv_core.so* linux_x64/
           cp /usr/lib/x86_64-linux-gnu/libopencv_imgproc.so* linux_x64/
           ls -la linux_x64/
@@ -82,9 +85,8 @@ jobs:
           # Копируем нашу DLL
           Copy-Item -Path "build\Release\image_processing.dll" -Destination "windows_x64\" -Force
           
-          # ИСПРАВЛЕНО: Копируем ТОЛЬКО необходимые модули OpenCV (core и imgproc), 
-          # чтобы не превысить лимит GitHub в 100 МБ (избегаем opencv_world*.dll)
-          Write-Host "=== Копирование необходимых DLL OpenCV ==="
+          # OpenCV 4.10.0 использует единую библиотеку opencv_world*.dll
+          Write-Host "=== Копирование зависимостей OpenCV ==="
           $opencv_build = "C:\opencv\opencv\build"
           $bin_path = Get-ChildItem -Path $opencv_build -Recurse -Directory -Filter "bin" | 
                       Where-Object { $_.FullName -match "x64" } | 
@@ -93,23 +95,29 @@ jobs:
           if ($bin_path) {
             Write-Host "Найдена папка bin: $bin_path"
             
-            # Явно указываем только нужные файлы
-            $required_dlls = @("opencv_core4100.dll", "opencv_imgproc4100.dll")
+            # Приоритет 1: ищем opencv_world4100.dll (release, без 'd' в конце)
+            $world_dll = Get-ChildItem -Path $bin_path -Filter "opencv_world4100.dll" | Select-Object -First 1
             
-            foreach ($dll in $required_dlls) {
-              $source = Join-Path -Path $bin_path -ChildPath $dll
-              if (Test-Path $source) {
-                Write-Host "Копирование: $dll"
-                Copy-Item -Path $source -Destination "windows_x64\" -Force
-              } else {
-                Write-Host "Внимание: Файл $dll не найден в $bin_path"
+            if ($world_dll) {
+              Write-Host "Копирование: $($world_dll.Name) ($([math]::Round($world_dll.Length/1MB, 2)) MB)"
+              Copy-Item -Path $world_dll.FullName -Destination "windows_x64\" -Force
+            } else {
+              # Приоритет 2: ищем раздельные модули core и imgproc (без отладочных 'd.dll')
+              Write-Host "opencv_world4100.dll не найден, ищем раздельные модули..."
+              Get-ChildItem -Path $bin_path -Filter "opencv_core*.dll" | Where-Object { $_.Name -notlike "*d.dll" } | ForEach-Object {
+                Write-Host "Копирование: $($_.Name) ($([math]::Round($_.Length/1MB, 2)) MB)"
+                Copy-Item -Path $_.FullName -Destination "windows_x64\" -Force
+              }
+              Get-ChildItem -Path $bin_path -Filter "opencv_imgproc*.dll" | Where-Object { $_.Name -notlike "*d.dll" } | ForEach-Object {
+                Write-Host "Копирование: $($_.Name) ($([math]::Round($_.Length/1MB, 2)) MB)"
+                Copy-Item -Path $_.FullName -Destination "windows_x64\" -Force
               }
             }
           } else {
             throw "Не удалось найти папку bin OpenCV в $opencv_build"
           }
           
-          Write-Host "Файлы в папке windows_x64:"
+          Write-Host "Итоговый состав папки windows_x64:"
           Get-ChildItem -Path "windows_x64\*.dll" | Select-Object Name, @{Name="Size(MB)";Expression={[math]::Round($_.Length/1MB, 2)}}
       
       - name: Upload Windows Binaries
@@ -121,6 +129,7 @@ jobs:
   commit-binaries:
     needs: [build-linux, build-windows]
     runs-on: ubuntu-latest
+    # Запускаем только при прямом push в main/master (не во время PR)
     if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master')
     steps:
       - uses: actions/checkout@v4
