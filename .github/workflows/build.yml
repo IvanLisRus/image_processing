@@ -28,7 +28,9 @@ jobs:
           path: build/libimage_processing.so
 
   build-windows:
-    runs-on: windows-latest
+    # ИСПРАВЛЕНО: Используем стабильный windows-2022 вместо windows-latest
+    # Это гарантирует наличие Visual Studio 2022, совместимого с OpenCV 4.10.0
+    runs-on: windows-2022
     steps:
       - uses: actions/checkout@v4
       
@@ -59,9 +61,8 @@ jobs:
           mkdir build
           cd build
           
-          # ИСПРАВЛЕНО: Убрали -G "Visual Studio 17 2022". 
-          # CMake сам найдет актуальную версию Visual Studio на runner'е.
-          cmake -A x64 -DOpenCV_DIR:PATH="C:/opencv/opencv/build" ..
+          # ИСПРАВЛЕНО: Явно указываем VS 2022, который точно есть на windows-2022
+          cmake -G "Visual Studio 17 2022" -A x64 -DOpenCV_DIR:PATH="C:/opencv/opencv/build" ..
           
           if ($LASTEXITCODE -ne 0) { 
             Write-Host "=== CMAKE ERROR LOG ==="
