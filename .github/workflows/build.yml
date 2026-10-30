@@ -21,15 +21,23 @@ jobs:
           cmake -DCMAKE_BUILD_TYPE=Release ..
           make -j$(nproc)
           
+      - name: Bundle OpenCV SOs
+        run: |
+          echo "=== Копирование зависимостей OpenCV для Linux ==="
+          # Копируем сами библиотеки и все их символьные ссылки (symlinks)
+          cp /usr/lib/x86_64-linux-gnu/libopencv_core.so* build/
+          cp /usr/lib/x86_64-linux-gnu/libopencv_imgproc.so* build/
+          echo "Файлы в папке build:"
+          ls -la build/libopencv*
+          
       - name: Upload Linux Artifact
         uses: actions/upload-artifact@v4
         with:
-          name: image-processing-linux
-          path: build/libimage_processing.so
+          name: image-processing-linux-portable
+          # Упаковываем всю папку build целиком
+          path: build/
 
   build-windows:
-    # ИСПРАВЛЕНО: Используем стабильный windows-2022 вместо windows-latest
-    # Это гарантирует наличие Visual Studio 2022, совместимого с OpenCV 4.10.0
     runs-on: windows-2022
     steps:
       - uses: actions/checkout@v4
@@ -43,46 +51,39 @@ jobs:
           Write-Host "=== 2. Verifying download size ==="
           $file = Get-Item "opencv.exe"
           if ($file.Length -lt 100MB) {
-            throw "Downloaded file is too small ($($file.Length) bytes). Download likely failed."
+            throw "Downloaded file is too small ($($file.Length) bytes)."
           }
           
           Write-Host "=== 3. Extracting OpenCV to C:\opencv ==="
           7z x opencv.exe -oC:\opencv -y
           
-          Write-Host "=== 4. Verifying extraction ==="
-          if (!(Test-Path "C:\opencv\opencv\build")) {
-            throw "OpenCV build directory not found at C:\opencv\opencv\build after extraction!"
-          }
-
       - name: Build DLL
         shell: pwsh
         run: |
-          Write-Host "=== 5. Configuring CMake ==="
+          Write-Host "=== 4. Configuring CMake ==="
           mkdir build
           cd build
-          
-          # ИСПРАВЛЕНО: Явно указываем VS 2022, который точно есть на windows-2022
           cmake -G "Visual Studio 17 2022" -A x64 -DOpenCV_DIR:PATH="C:/opencv/opencv/build" ..
+          if ($LASTEXITCODE -ne 0) { throw "CMake configuration failed" }
           
-          if ($LASTEXITCODE -ne 0) { 
-            Write-Host "=== CMAKE ERROR LOG ==="
-            Get-Content CMakeFiles/CMakeError.log -ErrorAction SilentlyContinue
-            Get-Content CMakeFiles/CMakeOutput.log -ErrorAction SilentlyContinue
-            throw "CMake configuration failed" 
-          }
-          
-          Write-Host "=== 6. Building Release ==="
+          Write-Host "=== 5. Building Release ==="
           cmake --build . --config Release --parallel
-          if ($LASTEXITCODE -ne 0) { 
-            Write-Host "=== BUILD ERROR LOG ==="
-            throw "CMake build failed" 
-          }
+          if ($LASTEXITCODE -ne 0) { throw "CMake build failed" }
           
-          Write-Host "=== 7. Verifying output ==="
-          Get-ChildItem -Path ".\Release\*.dll"
-
+      - name: Bundle OpenCV DLLs
+        shell: pwsh
+        run: |
+          Write-Host "=== 6. Копирование зависимостей OpenCV для Windows ==="
+          # Копируем все DLL OpenCV из папки bin в папку Release рядом с нашей DLL
+          $opencv_bin = "C:\opencv\opencv\build\x64\vc16\bin"
+          $target_dir = "build\Release"
+          
+          Copy-Item -Path "$opencv_bin\opencv_*.dll" -Destination $target_dir -Force
+          Write-Host "Файлы в папке Release:"
+          Get-ChildItem -Path $target_dir\*.dll | Select-Object Name
+          
       - name: Upload Windows Artifact
         uses: actions/upload-artifact@v4
         with:
-          name: image-processing-windows
-          path: build/Release/image_processing.dll
+          name: image-processing-windows-portable
+          path: build/Release/
