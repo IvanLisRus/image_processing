@@ -1,10 +1,13 @@
-name: Build Cross-Platform Libraries
+name: Build and Commit Libraries
 
 on:
   push:
     branches: [ main, master ]
   pull_request:
     branches: [ main, master ]
+
+permissions:
+  contents: write
 
 jobs:
   build-linux:
@@ -21,21 +24,16 @@ jobs:
           cmake -DCMAKE_BUILD_TYPE=Release ..
           make -j$(nproc)
           
-      - name: Bundle OpenCV SOs
+      - name: Prepare Linux Binaries
         run: |
-          echo "=== Копирование зависимостей OpenCV для Linux ==="
-          # Копируем сами библиотеки и все их символьные ссылки (symlinks)
-          cp /usr/lib/x86_64-linux-gnu/libopencv_core.so* build/
-          cp /usr/lib/x86_64-linux-gnu/libopencv_imgproc.so* build/
-          echo "Файлы в папке build:"
-          ls -la build/libopencv*
-          
-      - name: Upload Linux Artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: image-processing-linux-portable
-          # Упаковываем всю папку build целиком
-          path: build/
+          echo "=== Подготовка файлов для папки linux_x64 ==="
+          mkdir -p linux_x64
+          # Копируем нашу библиотеку (теперь без префикса lib)
+          cp build/image_processing.so linux_x64/
+          # Копируем зависимости OpenCV
+          cp /usr/lib/x86_64-linux-gnu/libopencv_core.so* linux_x64/
+          cp /usr/lib/x86_64-linux-gnu/libopencv_imgproc.so* linux_x64/
+          ls -la linux_x64/
 
   build-windows:
     runs-on: windows-2022
@@ -70,20 +68,33 @@ jobs:
           cmake --build . --config Release --parallel
           if ($LASTEXITCODE -ne 0) { throw "CMake build failed" }
           
-      - name: Bundle OpenCV DLLs
+      - name: Prepare Windows Binaries
         shell: pwsh
         run: |
-          Write-Host "=== 6. Копирование зависимостей OpenCV для Windows ==="
-          # Копируем все DLL OpenCV из папки bin в папку Release рядом с нашей DLL
+          Write-Host "=== 6. Подготовка файлов для папки windows_x64 ==="
+          New-Item -ItemType Directory -Force -Path "windows_x64"
+          
+          # Копируем нашу DLL
+          Copy-Item -Path "build\Release\image_processing.dll" -Destination "windows_x64\" -Force
+          
+          # Копируем зависимости OpenCV
           $opencv_bin = "C:\opencv\opencv\build\x64\vc16\bin"
-          $target_dir = "build\Release"
+          Copy-Item -Path "$opencv_bin\opencv_core4100.dll" -Destination "windows_x64\" -Force
+          Copy-Item -Path "$opencv_bin\opencv_imgproc4100.dll" -Destination "windows_x64\" -Force
           
-          Copy-Item -Path "$opencv_bin\opencv_*.dll" -Destination $target_dir -Force
-          Write-Host "Файлы в папке Release:"
-          Get-ChildItem -Path $target_dir\*.dll | Select-Object Name
-          
-      - name: Upload Windows Artifact
-        uses: actions/upload-artifact@v4
+          Write-Host "Файлы в папке windows_x64:"
+          Get-ChildItem -Path "windows_x64\*.dll" | Select-Object Name
+
+  commit-binaries:
+    needs: [build-linux, build-windows]
+    runs-on: ubuntu-latest
+    if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master')
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Commit and Push Binaries
+        uses: stefanzweifel/git-auto-commit-action@v5
         with:
-          name: image-processing-windows-portable
-          path: build/Release/
+          commit_message: "chore: auto-update pre-built binaries (DLL/SO)"
+          file_pattern: "windows_x64/*.dll linux_x64/*.so*"
+          commit_author: "GitHub Actions <actions@github.com>"

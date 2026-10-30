@@ -12,12 +12,10 @@ add_library(image_processing SHARED image_processing.cpp)
 target_include_directories(image_processing PRIVATE ${OpenCV_INCLUDE_DIRS})
 target_link_libraries(image_processing PRIVATE ${OpenCV_LIBS})
 
-if(WIN32)
-    set_target_properties(image_processing PROPERTIES PREFIX "")
-endif()
+# Убираем префикс "lib" для обеих платформ
+set_target_properties(image_processing PROPERTIES PREFIX "")
 
-# === ДОБАВЛЕНО: Настройка для Linux (RPATH) ===
-# Заставляет библиотеку искать зависимости (.so) в той же папке, где она сама лежит ($ORIGIN)
+# Настройка RPATH для Linux (поиск зависимостей в той же папке)
 if(UNIX AND NOT APPLE)
     set_target_properties(image_processing PROPERTIES
         BUILD_WITH_INSTALL_RPATH TRUE
