@@ -34,17 +34,20 @@ jobs:
       
       - name: Download and Extract OpenCV
         run: |
-          # Скачиваем официальный .exe (это самораспаковывающийся 7z архив)
-          Invoke-WebRequest -Uri "https://github.com/opencv/opencv/releases/download/4.10.0/opencv-4.10.0-windows.exe" -OutFile "opencv.exe"
-          # Распаковываем с помощью 7z (предустановлен на windows-latest) в C:\opencv
-          7z x opencv.exe -oC:\opencv -y
+          # curl.exe надежнее обрабатывает загрузку больших бинарных файлов с GitHub
+          curl.exe -L -o opencv.exe https://github.com/opencv/opencv/releases/download/4.10.0/opencv-4.10.0-windows.exe
+          # Распаковываем в текущую рабочую директорию (создаст папку .\opencv)
+          7z x opencv.exe -o.\opencv -y
           
       - name: Build DLL
         run: |
           mkdir build
           cd build
-          # Обратите внимание на путь: внутри архива есть папка opencv, поэтому путь .../opencv/opencv/build
-          cmake -G "Visual Studio 17 2022" -A x64 -DOpenCV_DIR="C:/opencv/opencv/build" ..
+          # Формируем точный абсолютный путь к папке build внутри распакованного OpenCV
+          $opencv_dir = "$env:GITHUB_WORKSPACE\opencv\opencv\build"
+          Write-Host "Using OpenCV_DIR: $opencv_dir"
+          
+          cmake -G "Visual Studio 17 2022" -A x64 "-DOpenCV_DIR=$opencv_dir" ..
           cmake --build . --config Release
           
       - name: Upload Windows Artifact
