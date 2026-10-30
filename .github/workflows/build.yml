@@ -59,7 +59,10 @@ jobs:
           mkdir build
           cd build
           
-          cmake -G "Visual Studio 17 2022" -A x64 -DOpenCV_DIR:PATH="C:/opencv/opencv/build" ..
+          # ИСПРАВЛЕНО: Убрали -G "Visual Studio 17 2022". 
+          # CMake сам найдет актуальную версию Visual Studio на runner'е.
+          cmake -A x64 -DOpenCV_DIR:PATH="C:/opencv/opencv/build" ..
+          
           if ($LASTEXITCODE -ne 0) { 
             Write-Host "=== CMAKE ERROR LOG ==="
             Get-Content CMakeFiles/CMakeError.log -ErrorAction SilentlyContinue
