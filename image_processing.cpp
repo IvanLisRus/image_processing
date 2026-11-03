@@ -194,3 +194,77 @@ extern "C" EXPORT void crop_coin_planar(
     masked_g.copyTo(dst_g_mat(roi));
     masked_b.copyTo(dst_b_mat(roi));
 }
+
+
+// Поворот кропа монеты
+extern "C" EXPORT void rotate_coin_planar(
+    const uint8_t* in_r,          // Входной канал R
+    const uint8_t* in_g,          // Входной канал G
+    const uint8_t* in_b,          // Входной канал B
+    int32_t orig_w,               // Исходная ширина
+    int32_t orig_h,               // Исходная высота
+    float angle,                  // Угол поворота в радианах
+    uint8_t pad_r,                // Цвет фона: Red
+    uint8_t pad_g,                // Цвет фона: Green
+    uint8_t pad_b,                // Цвет фона: Blue
+    uint8_t* out_r,               // Выходной канал R
+    uint8_t* out_g,               // Выходной канал G
+    uint8_t* out_b                // Выходной канал B
+) {
+    // 1. Базовая защита
+    if (!in_r || !in_g || !in_b || !out_r || !out_g || !out_b) {
+        return;
+    }
+    if (orig_w <= 0 || orig_h <= 0) {
+        return;
+    }
+
+    // 2. Создаем заголовки cv::Mat ПОВЕРХ массивов LabVIEW
+    cv::Mat src_r_mat(orig_h, orig_w, CV_8UC1, const_cast<uint8_t*>(in_r));
+    cv::Mat src_g_mat(orig_h, orig_w, CV_8UC1, const_cast<uint8_t*>(in_g));
+    cv::Mat src_b_mat(orig_h, orig_w, CV_8UC1, const_cast<uint8_t*>(in_b));
+
+    cv::Mat dst_r_mat(orig_h, orig_w, CV_8UC1, out_r);
+    cv::Mat dst_g_mat(orig_h, orig_w, CV_8UC1, out_g);
+    cv::Mat dst_b_mat(orig_h, orig_w, CV_8UC1, out_b);
+
+    // 3. Вычисляем центр изображения
+    cv::Point2f center(static_cast<float>(orig_w) / 2.0f, 
+                       static_cast<float>(orig_h) / 2.0f);
+
+    // 4. Преобразуем радианы в градусы (OpenCV работает в градусах)
+    // Отрицательный угол для поворота против часовой стрелки
+    double angle_degrees = angle * 180.0 / CV_PI;
+
+    // 5. Создаем матрицу поворота
+    cv::Mat rotation_matrix = cv::getRotationMatrix2D(center, angle_degrees, 1.0);
+
+    // 6. Настраиваем параметры для warpAffine
+    // borderMode=BORDER_CONSTANT заполнит области за пределами изображения цветом pad
+    cv::Scalar border_color_r(pad_r);
+    cv::Scalar border_color_g(pad_g);
+    cv::Scalar border_color_b(pad_b);
+
+    // 7. Выполняем поворот для каждого канала
+    cv::warpAffine(src_r_mat, dst_r_mat, rotation_matrix, 
+                   cv::Size(orig_w, orig_h), 
+                   cv::INTER_LINEAR, 
+                   cv::BORDER_CONSTANT, 
+                   border_color_r);
+
+    cv::warpAffine(src_g_mat, dst_g_mat, rotation_matrix, 
+                   cv::Size(orig_w, orig_h), 
+                   cv::INTER_LINEAR, 
+                   cv::BORDER_CONSTANT, 
+                   border_color_g);
+
+    cv::warpAffine(src_b_mat, dst_b_mat, rotation_matrix, 
+                   cv::Size(orig_w, orig_h), 
+                   cv::INTER_LINEAR, 
+                   cv::BORDER_CONSTANT, 
+                   border_color_b);
+}
+
+
+
+
