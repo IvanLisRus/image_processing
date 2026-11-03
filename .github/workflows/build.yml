@@ -29,12 +29,14 @@ jobs:
         run: |
           echo "=== Подготовка файлов для папки linux_x64 ==="
           mkdir -p linux_x64
-          # Копируем нашу библиотеку (CMakeLists.txt убирает префикс lib только на Windows,
-          # поэтому на Linux может быть libimage_processing.so)
+          
+          # Копируем нашу библиотеку
           cp build/image_processing.so linux_x64/ 2>/dev/null || cp build/libimage_processing.so linux_x64/image_processing.so
-          # Копируем ТОЛЬКО необходимые зависимости OpenCV
-          cp /usr/lib/x86_64-linux-gnu/libopencv_core.so* linux_x64/
-          cp /usr/lib/x86_64-linux-gnu/libopencv_imgproc.so* linux_x64/
+          
+          # Копируем ТОЛЬКО основные .so файлы (без версионных симлинков)
+          cp /usr/lib/x86_64-linux-gnu/libopencv_core.so linux_x64/
+          cp /usr/lib/x86_64-linux-gnu/libopencv_imgproc.so linux_x64/
+          
           ls -la linux_x64/
       
       - name: Upload Linux Binaries
@@ -150,5 +152,6 @@ jobs:
         uses: stefanzweifel/git-auto-commit-action@v5
         with:
           commit_message: "chore: auto-update pre-built binaries (DLL/SO)"
-          file_pattern: "windows_x64/*.dll linux_x64/*.so*"
+          # ИСПРАВЛЕНО: используем *.so вместо *.so* чтобы не коммитить версионные симлинки
+          file_pattern: "windows_x64/*.dll linux_x64/*.so"
           commit_author: "GitHub Actions <actions@github.com>"
