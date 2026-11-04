@@ -201,20 +201,27 @@ extern "C" EXPORT void resize_cubic_planar(
 extern "C" EXPORT void apply_gamma_planar(
     const uint8_t* in_r, const uint8_t* in_g, const uint8_t* in_b,
     int32_t orig_w, int32_t orig_h,
-    float gamma_value,            // Например, 0.9
+    float gamma_value,
     uint8_t* out_r, uint8_t* out_g, uint8_t* out_b
 ) {
-    if (!in_r || !in_g || !in_b || !out_r || !out_g || !out_b) return;
-    if (orig_w <= 0 || orig_h <= 0 || gamma_value <= 0.0f) return;
-
-    // Если gamma == 1.0, изображение не меняется, просто копируем
-    if (std::abs(gamma_value - 1.0f) < 1e-5f) {
-        std::memcpy(out_r, in_r, orig_w * orig_h);
-        std::memcpy(out_g, in_g, orig_w * orig_h);
-        std::memcpy(out_b, in_b, orig_w * orig_h);
+    // 1. Базовая защита
+    if (!in_r || !in_g || !in_b || !out_r || !out_g || !out_b) {
+        return;
+    }
+    if (orig_w <= 0 || orig_h <= 0 || gamma_value <= 0.0f) {
         return;
     }
 
+    // 2. Если gamma == 1.0, просто копируем данные
+    if (std::fabs(gamma_value - 1.0f) < 1e-5f) {
+        size_t pixel_count = static_cast<size_t>(orig_w) * static_cast<size_t>(orig_h);
+        std::memcpy(out_r, in_r, pixel_count);
+        std::memcpy(out_g, in_g, pixel_count);
+        std::memcpy(out_b, in_b, pixel_count);
+        return;
+    }
+
+    // 3. Создаем заголовки cv::Mat поверх массивов LabVIEW
     cv::Mat src_r(orig_h, orig_w, CV_8UC1, const_cast<uint8_t*>(in_r));
     cv::Mat src_g(orig_h, orig_w, CV_8UC1, const_cast<uint8_t*>(in_g));
     cv::Mat src_b(orig_h, orig_w, CV_8UC1, const_cast<uint8_t*>(in_b));
@@ -222,19 +229,22 @@ extern "C" EXPORT void apply_gamma_planar(
     cv::Mat dst_g(orig_h, orig_w, CV_8UC1, out_g);
     cv::Mat dst_b(orig_h, orig_w, CV_8UC1, out_b);
 
-    // Создаем LUT (Look-Up Table) для Gamma коррекции
+    // 4. Создаем LUT для Gamma коррекции
     float inv_gamma = 1.0f / gamma_value;
     std::vector<uint8_t> lut(256);
     for (int i = 0; i < 256; ++i) {
-        lut[i] = static_cast<uint8_t>(std::round(std::pow(i / 255.0f, inv_gamma) * 255.0f));
+        float normalized = static_cast<float>(i) / 255.0f;
+        float corrected = std::pow(normalized, inv_gamma);
+        lut[i] = static_cast<uint8_t>(std::round(corrected * 255.0f));
     }
+    
+    // 5. Применяем LUT к каждому каналу
     cv::Mat lut_mat(1, 256, CV_8UC1, lut.data());
-
-    // Применяем LUT к каждому каналу
     cv::LUT(src_r, lut_mat, dst_r);
     cv::LUT(src_g, lut_mat, dst_g);
     cv::LUT(src_b, lut_mat, dst_b);
 }
+
 
 // ============================================================================
 // 5. CLAHE (Contrast Limited Adaptive Histogram Equalization)
