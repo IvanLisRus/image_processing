@@ -11,7 +11,7 @@ permissions:
 
 jobs:
   build-linux:
-    runs-on: ubuntu-22.04
+    runs-on: ubuntu-22.04  # ← ВАЖНО: собираем на ubuntu-22.04 для совместимости glibc
     steps:
       - uses: actions/checkout@v4
       
@@ -26,31 +26,57 @@ jobs:
       
       - name: Prepare Linux Binaries
         run: |
-          echo "=== Подготовка полностью автономной библиотеки ==="
+          echo "=== Подготовка автономной библиотеки ==="
           rm -rf linux_x64
           mkdir -p linux_x64
           
           # 1. Копируем нашу библиотеку
           cp build/image_processing.so linux_x64/ 2>/dev/null || cp build/libimage_processing.so linux_x64/image_processing.so
           
-          # 2. Копируем ТОЛЬКО release-версии OpenCV (без суффикса 'd')
-          echo "=== Копирование release-версий OpenCV ==="
+          # 2. Находим актуальные release-версии OpenCV (без суффикса 'd')
+          echo "=== Поиск release-версий OpenCV ==="
           
-          # Ищем файлы без суффикса 'd' (release версии)
-          find /usr/lib/x86_64-linux-gnu -name "libopencv_core.so.[0-9]*" ! -name "*d" -type f | head -1 | xargs -I {} cp {} linux_x64/
-          find /usr/lib/x86_64-linux-gnu -name "libopencv_imgproc.so.[0-9]*" ! -name "*d" -type f | head -1 | xargs -I {} cp {} linux_x64/
+          # Ищем файлы libopencv_core.so.X.Y.Z (release, без 'd')
+          CORE_LIB=$(find /usr/lib/x86_64-linux-gnu -name "libopencv_core.so.[0-9]*" ! -name "*d" -type f | sort | tail -1)
+          IMGPROC_LIB=$(find /usr/lib/x86_64-linux-gnu -name "libopencv_imgproc.so.[0-9]*" ! -name "*d" -type f | sort | tail -1)
           
-          # Создаем симлинки для совместимости
+          echo "Найдено:"
+          echo "  Core: $CORE_LIB"
+          echo "  ImgProc: $IMGPROC_LIB"
+          
+          if [ -z "$CORE_LIB" ] || [ -z "$IMGPROC_LIB" ]; then
+            echo "❌ Не удалось найти release-версии OpenCV!"
+            exit 1
+          fi
+          
+          # 3. Копируем основные файлы
+          cp "$CORE_LIB" linux_x64/
+          cp "$IMGPROC_LIB" linux_x64/
+          
+          # 4. Создаем симлинки для совместимости
           cd linux_x64
-          ln -sf libopencv_core.so.* libopencv_core.so
-          ln -sf libopencv_imgproc.so.* libopencv_imgproc.so
+          CORE_BASE=$(basename "$CORE_LIB")
+          IMGPROC_BASE=$(basename "$IMGPROC_LIB")
+          
+          # Извлекаем версию (например, из libopencv_core.so.4.5.4 получаем 4.5.4)
+          CORE_VER=$(echo "$CORE_BASE" | grep -oP '\d+\.\d+\.\d+')
+          IMGPROC_VER=$(echo "$IMGPROC_BASE" | grep -oP '\d+\.\d+\.\d+')
+          
+          # Создаем симлинки: .so → .so.X.Y.Z
+          ln -sf "$CORE_BASE" libopencv_core.so
+          ln -sf "$CORE_BASE" "libopencv_core.so.${CORE_VER%.*}"  # major.minor
+          ln -sf "$CORE_BASE" "libopencv_core.so.${CORE_VER%%.*}"  # major
+          
+          ln -sf "$IMGPROC_BASE" libopencv_imgproc.so
+          ln -sf "$IMGPROC_BASE" "libopencv_imgproc.so.${IMGPROC_VER%.*}"
+          ln -sf "$IMGPROC_BASE" "libopencv_imgproc.so.${IMGPROC_VER%%.*}"
+          
           cd ..
           
-          # 3. Проверяем результат
+          # 5. Проверяем результат
           echo "=== Итоговый список файлов ==="
           ls -lh linux_x64/
           
-          # 4. Проверяем зависимости
           echo "=== Проверка зависимостей ==="
           cd linux_x64
           ldd image_processing.so | grep -E "(opencv|not found)"
@@ -61,7 +87,7 @@ jobs:
         with:
           name: linux-binaries
           path: linux_x64/
-          
+
   build-windows:
     runs-on: windows-2022
     steps:
@@ -99,14 +125,11 @@ jobs:
         shell: pwsh
         run: |
           Write-Host "=== 6. Подготовка файлов для папки windows_x64 ==="
-          # Полностью очищаем папку перед копированием
           Remove-Item -Path "windows_x64" -Recurse -Force -ErrorAction SilentlyContinue
           New-Item -ItemType Directory -Force -Path "windows_x64"
           
-          # Копируем нашу DLL
           Copy-Item -Path "build\Release\image_processing.dll" -Destination "windows_x64\" -Force
           
-          # OpenCV 4.10.0 использует единую библиотеку opencv_world*.dll
           Write-Host "=== Копирование зависимостей OpenCV ==="
           $opencv_build = "C:\opencv\opencv\build"
           $bin_path = Get-ChildItem -Path $opencv_build -Recurse -Directory -Filter "bin" | 
@@ -124,11 +147,11 @@ jobs:
             } else {
               Write-Host "opencv_world4100.dll не найден, ищем раздельные модули..."
               Get-ChildItem -Path $bin_path -Filter "opencv_core*.dll" | Where-Object { $_.Name -notlike "*d.dll" } | ForEach-Object {
-                Write-Host "Копирование: $($_.Name) ($([math]::Round($_.Length/1MB, 2)) MB)"
+                Write-Host "Копирование: $($_.Name)"
                 Copy-Item -Path $_.FullName -Destination "windows_x64\" -Force
               }
               Get-ChildItem -Path $bin_path -Filter "opencv_imgproc*.dll" | Where-Object { $_.Name -notlike "*d.dll" } | ForEach-Object {
-                Write-Host "Копирование: $($_.Name) ($([math]::Round($_.Length/1MB, 2)) MB)"
+                Write-Host "Копирование: $($_.Name)"
                 Copy-Item -Path $_.FullName -Destination "windows_x64\" -Force
               }
             }
@@ -154,7 +177,6 @@ jobs:
       
       - name: Clean old binaries from git
         run: |
-          # Удаляем все старые файлы из папок linux_x64 и windows_x64 в git
           git rm -rf linux_x64/* 2>/dev/null || true
           git rm -rf windows_x64/* 2>/dev/null || true
           git commit -m "chore: clean old binaries" --allow-empty || true
@@ -175,5 +197,5 @@ jobs:
         uses: stefanzweifel/git-auto-commit-action@v5
         with:
           commit_message: "chore: auto-update pre-built binaries (DLL/SO)"
-          file_pattern: "windows_x64/*.dll linux_x64/*.so"
+          file_pattern: "windows_x64/*.dll linux_x64/*.so*"
           commit_author: "GitHub Actions <actions@github.com>"
