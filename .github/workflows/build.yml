@@ -17,35 +17,51 @@ jobs:
       
       - name: Install dependencies
         run: sudo apt-get update && sudo apt-get install -y cmake build-essential libopencv-dev
-        
+      
       - name: Build SO
         run: |
           mkdir -p build && cd build
           cmake -DCMAKE_BUILD_TYPE=Release ..
           make -j$(nproc)
-          
+      
       - name: Prepare Linux Binaries
         run: |
-          echo "=== Подготовка файлов для папки linux_x64 ==="
-          # Полностью очищаем папку перед копированием
+          echo "=== Подготовка полностью автономной библиотеки ==="
           rm -rf linux_x64
           mkdir -p linux_x64
           
-          # Копируем нашу библиотеку
+          # 1. Копируем нашу библиотеку
           cp build/image_processing.so linux_x64/ 2>/dev/null || cp build/libimage_processing.so linux_x64/image_processing.so
           
-          # Копируем ТОЛЬКО основные .so файлы (без версионных симлинков)
-          cp /usr/lib/x86_64-linux-gnu/libopencv_core.so linux_x64/
-          cp /usr/lib/x86_64-linux-gnu/libopencv_imgproc.so linux_x64/
+          # 2. Копируем ТОЛЬКО release-версии OpenCV (без суффикса 'd')
+          echo "=== Копирование release-версий OpenCV ==="
           
-          ls -la linux_x64/
+          # Ищем файлы без суффикса 'd' (release версии)
+          find /usr/lib/x86_64-linux-gnu -name "libopencv_core.so.[0-9]*" ! -name "*d" -type f | head -1 | xargs -I {} cp {} linux_x64/
+          find /usr/lib/x86_64-linux-gnu -name "libopencv_imgproc.so.[0-9]*" ! -name "*d" -type f | head -1 | xargs -I {} cp {} linux_x64/
+          
+          # Создаем симлинки для совместимости
+          cd linux_x64
+          ln -sf libopencv_core.so.* libopencv_core.so
+          ln -sf libopencv_imgproc.so.* libopencv_imgproc.so
+          cd ..
+          
+          # 3. Проверяем результат
+          echo "=== Итоговый список файлов ==="
+          ls -lh linux_x64/
+          
+          # 4. Проверяем зависимости
+          echo "=== Проверка зависимостей ==="
+          cd linux_x64
+          ldd image_processing.so | grep -E "(opencv|not found)"
+          cd ..
       
       - name: Upload Linux Binaries
         uses: actions/upload-artifact@v4
         with:
           name: linux-binaries
           path: linux_x64/
-
+          
   build-windows:
     runs-on: windows-2022
     steps:
