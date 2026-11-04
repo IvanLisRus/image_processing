@@ -1,16 +1,19 @@
 #include <opencv2/opencv.hpp>
 #include <algorithm>
 #include <cstdint>
+#include <cmath>
+#include <vector>
 
 // Макросы для корректного экспорта функций в Windows (DLL) и Linux (SO)
 #ifdef _WIN32
-    #define EXPORT __declspec(dllexport)
+#define EXPORT __declspec(dllexport)
 #else
-    #define EXPORT __attribute__((visibility("default")))
+#define EXPORT __attribute__((visibility("default")))
 #endif
 
-
-// Изменяем размер изображения для передачи его в ИНС
+// ============================================================================
+// 1. LETTERBOX RESIZE (INTER_LINEAR) - существующая функция
+// ============================================================================
 extern "C" EXPORT void letterbox_resize_planar(
     const uint8_t* in_r,          // Входной канал R
     const uint8_t* in_g,          // Входной канал G
@@ -71,7 +74,7 @@ extern "C" EXPORT void letterbox_resize_planar(
     // 6. Определяем область интереса (ROI) для вставки масштабированного изображения
     cv::Rect roi(left, top, new_w, new_h);
 
-    // 7. Масштабируем каждый канал напрямую в ROI целевого изображения
+    // 7. Масштабируем каждый канал напрямую в ROI целевого изображения (INTER_LINEAR)
     cv::resize(src_r_mat, dst_r_mat(roi), cv::Size(new_w, new_h), 0, 0, cv::INTER_LINEAR);
     cv::resize(src_g_mat, dst_g_mat(roi), cv::Size(new_w, new_h), 0, 0, cv::INTER_LINEAR);
     cv::resize(src_b_mat, dst_b_mat(roi), cv::Size(new_w, new_h), 0, 0, cv::INTER_LINEAR);
@@ -82,189 +85,266 @@ extern "C" EXPORT void letterbox_resize_planar(
     *out_top = top;
 }
 
-
-// Возвращяет круглый кроп монеты, вокруг монеты заливаем цветом
-extern "C" EXPORT void crop_coin_planar(
+// ============================================================================
+// 2. LETTERBOX RESIZE (INTER_CUBIC) - НОВАЯ функция для совместимости с Python
+// ============================================================================
+extern "C" EXPORT void letterbox_resize_cubic_planar(
     const uint8_t* in_r,          // Входной канал R
     const uint8_t* in_g,          // Входной канал G
     const uint8_t* in_b,          // Входной канал B
     int32_t orig_w,               // Исходная ширина
     int32_t orig_h,               // Исходная высота
-    float center_x,               // Нормированный X центра [0.0, 1.0]
-    float center_y,               // Нормированный Y центра [0.0, 1.0]
-    float width,                  // Нормированная ширина [0.0, 1.0]
-    float height,                 // Нормированная высота [0.0, 1.0]
-    uint8_t pad_r,                // Цвет фона: Red
-    uint8_t pad_g,                // Цвет фона: Green
-    uint8_t pad_b,                // Цвет фона: Blue
-    uint8_t* out_r,               // Выходной канал R (буфер размером orig_w * orig_h)
-    uint8_t* out_g,               // Выходной канал G (буфер размером orig_w * orig_h)
-    uint8_t* out_b,               // Выходной канал B (буфер размером orig_w * orig_h)
-    int32_t* crop_w,              // Выход: реальная ширина кропа
-    int32_t* crop_h,              // Выход: реальная высота кропа
-    int32_t* is_fully_visible     // Выход: 1 = монета целиком, 0 = обрезана
+    int32_t target_w,             // Целевая ширина (например, 1024)
+    int32_t target_h,             // Целевая высота (например, 1024 или 512)
+    uint8_t pad_r,                // Цвет padding: Red
+    uint8_t pad_g,                // Цвет padding: Green
+    uint8_t pad_b,                // Цвет padding: Blue
+    uint8_t* out_r,               // Выходной канал R (память выделена в LabVIEW)
+    uint8_t* out_g,               // Выходной канал G
+    uint8_t* out_b,               // Выходной канал B
+    float* out_scale,             // Возвращаемый коэффициент масштабирования
+    int32_t* out_left,            // Возвращаемый отступ слева
+    int32_t* out_top              // Возвращаемый отступ сверху
 ) {
-    // 1. Базовая защита
-    if (!in_r || !in_g || !in_b || !out_r || !out_g || !out_b || !crop_w || !crop_h || !is_fully_visible) {
+    // 1. Базовая защита от некорректных данных
+    if (!in_r || !in_g || !in_b || !out_r || !out_g || !out_b || !out_scale || !out_left || !out_top) {
         return;
     }
-    if (orig_w <= 0 || orig_h <= 0) {
-        *crop_w = 0;
-        *crop_h = 0;
-        *is_fully_visible = 0;
+    if (orig_w <= 0 || orig_h <= 0 || target_w <= 0 || target_h <= 0) {
         return;
     }
 
-    // 2. Денормализация координат и размеров
-    float cx = center_x * orig_w;
-    float cy = center_y * orig_h;
-    float w_px = width * orig_w;
-    float h_px = height * orig_h;
+    // 2. Вычисляем масштаб и новые размеры
+    float scale = std::min(static_cast<float>(target_w) / orig_w, 
+                           static_cast<float>(target_h) / orig_h);
+    
+    // Гарантируем минимум 1 пиксель
+    int new_w = std::max(1, static_cast<int>(orig_w * scale));
+    int new_h = std::max(1, static_cast<int>(orig_h * scale));
 
-    // 3. Вычисление радиуса (диаметр = MAX(ширина, высота))
-    float diameter = std::max(w_px, h_px);
-    float radius = diameter / 2.0f;
+    // 3. Вычисляем padding
+    int pad_w = target_w - new_w;
+    int pad_h = target_h - new_h;
+    
+    int top = pad_h / 2;
+    int bottom = pad_h - top;
+    int left = pad_w / 2;
+    int right = pad_w - left;
 
-    // 4. Вычисляем bounding box монеты (квадрат вокруг круга)
-    int left = static_cast<int>(std::round(cx - radius));
-    int top = static_cast<int>(std::round(cy - radius));
-    int right = static_cast<int>(std::round(cx + radius));
-    int bottom = static_cast<int>(std::round(cy + radius));
-
-    // 5. Проверяем, полностью ли монета в кадре
-    bool fully_visible = (left >= 0) && (right < orig_w) && (top >= 0) && (bottom < orig_h);
-    *is_fully_visible = fully_visible ? 1 : 0;
-
-    // 6. Обрезаем bounding box по границам изображения (если монета частично за краем)
-    int crop_left = std::max(0, left);
-    int crop_top = std::max(0, top);
-    int crop_right = std::min(orig_w - 1, right);
-    int crop_bottom = std::min(orig_h - 1, bottom);
-
-    int final_width = crop_right - crop_left + 1;
-    int final_height = crop_bottom - crop_top + 1;
-
-    // Если кроп получился невалидным (монета вообще не в кадре)
-    if (final_width <= 0 || final_height <= 0) {
-        *crop_w = 0;
-        *crop_h = 0;
-        return;
-    }
-
-    // 7. Возвращаем реальные размеры кропа
-    *crop_w = final_width;
-    *crop_h = final_height;
-
-    // 8. Создаем заголовки cv::Mat ПОВЕРХ массивов LabVIEW
+    // 4. Создаем заголовки cv::Mat ПОВЕРХ массивов LabVIEW
     cv::Mat src_r_mat(orig_h, orig_w, CV_8UC1, const_cast<uint8_t*>(in_r));
     cv::Mat src_g_mat(orig_h, orig_w, CV_8UC1, const_cast<uint8_t*>(in_g));
     cv::Mat src_b_mat(orig_h, orig_w, CV_8UC1, const_cast<uint8_t*>(in_b));
 
-    cv::Mat dst_r_mat(orig_h, orig_w, CV_8UC1, out_r);
-    cv::Mat dst_g_mat(orig_h, orig_w, CV_8UC1, out_g);
-    cv::Mat dst_b_mat(orig_h, orig_w, CV_8UC1, out_b);
+    cv::Mat dst_r_mat(target_h, target_w, CV_8UC1, out_r);
+    cv::Mat dst_g_mat(target_h, target_w, CV_8UC1, out_g);
+    cv::Mat dst_b_mat(target_h, target_w, CV_8UC1, out_b);
 
-    // 9. Заполняем ВСЕ выходное изображение цветом фона
+    // 5. Заполняем целевые изображения цветом padding
     dst_r_mat.setTo(pad_r);
     dst_g_mat.setTo(pad_g);
     dst_b_mat.setTo(pad_b);
 
-    // 10. Определяем ROI для копирования (обрезанный bounding box)
-    cv::Rect roi(crop_left, crop_top, final_width, final_height);
+    // 6. Определяем ROI
+    cv::Rect roi(left, top, new_w, new_h);
 
-    // 11. Копируем область из исходного изображения в выходное (с учетом ROI)
-    src_r_mat(roi).copyTo(dst_r_mat(roi));
-    src_g_mat(roi).copyTo(dst_g_mat(roi));
-    src_b_mat(roi).copyTo(dst_b_mat(roi));
+    // 7. Масштабируем с INTER_CUBIC (как в Python train_angle_detector.py)
+    cv::resize(src_r_mat, dst_r_mat(roi), cv::Size(new_w, new_h), 0, 0, cv::INTER_CUBIC);
+    cv::resize(src_g_mat, dst_g_mat(roi), cv::Size(new_w, new_h), 0, 0, cv::INTER_CUBIC);
+    cv::resize(src_b_mat, dst_b_mat(roi), cv::Size(new_w, new_h), 0, 0, cv::INTER_CUBIC);
 
-    // 12. Создаем круговую маску и применяем её (затираем углы цветом фона)
-    cv::Mat mask(final_height, final_width, CV_8UC1, cv::Scalar(0));
-    // Центр круга в координатах ROI
-    cv::Point circle_center(crop_left - left + static_cast<int>(std::round(radius)), 
-                            crop_top - top + static_cast<int>(std::round(radius)));
-    cv::circle(mask, circle_center, static_cast<int>(std::round(radius)), cv::Scalar(255), -1);
-    
-    // Применяем маску только к области кропа
-    cv::Mat masked_r, masked_g, masked_b;
-    dst_r_mat(roi).copyTo(masked_r, mask);
-    dst_g_mat(roi).copyTo(masked_g, mask);
-    dst_b_mat(roi).copyTo(masked_b, mask);
-    
-    masked_r.copyTo(dst_r_mat(roi));
-    masked_g.copyTo(dst_g_mat(roi));
-    masked_b.copyTo(dst_b_mat(roi));
+    // 8. Возвращаем параметры
+    *out_scale = scale;
+    *out_left = left;
+    *out_top = top;
 }
 
-
-// Поворот кропа монеты
-extern "C" EXPORT void rotate_coin_planar(
+// ============================================================================
+// 3. SIMPLE RESIZE (INTER_CUBIC) - простой resize без letterbox
+// ============================================================================
+extern "C" EXPORT void resize_cubic_planar(
     const uint8_t* in_r,          // Входной канал R
     const uint8_t* in_g,          // Входной канал G
     const uint8_t* in_b,          // Входной канал B
     int32_t orig_w,               // Исходная ширина
     int32_t orig_h,               // Исходная высота
-    float angle,                  // Угол поворота в радианах
-    uint8_t pad_r,                // Цвет фона: Red
-    uint8_t pad_g,                // Цвет фона: Green
-    uint8_t pad_b,                // Цвет фона: Blue
+    int32_t target_w,             // Целевая ширина
+    int32_t target_h,             // Целевая высота
     uint8_t* out_r,               // Выходной канал R
     uint8_t* out_g,               // Выходной канал G
     uint8_t* out_b                // Выходной канал B
 ) {
-    // 1. Базовая защита
     if (!in_r || !in_g || !in_b || !out_r || !out_g || !out_b) {
         return;
     }
-    if (orig_w <= 0 || orig_h <= 0) {
+    if (orig_w <= 0 || orig_h <= 0 || target_w <= 0 || target_h <= 0) {
         return;
     }
 
-    // 2. Создаем заголовки cv::Mat ПОВЕРХ массивов LabVIEW
     cv::Mat src_r_mat(orig_h, orig_w, CV_8UC1, const_cast<uint8_t*>(in_r));
     cv::Mat src_g_mat(orig_h, orig_w, CV_8UC1, const_cast<uint8_t*>(in_g));
     cv::Mat src_b_mat(orig_h, orig_w, CV_8UC1, const_cast<uint8_t*>(in_b));
 
-    cv::Mat dst_r_mat(orig_h, orig_w, CV_8UC1, out_r);
-    cv::Mat dst_g_mat(orig_h, orig_w, CV_8UC1, out_g);
-    cv::Mat dst_b_mat(orig_h, orig_w, CV_8UC1, out_b);
+    cv::Mat dst_r_mat(target_h, target_w, CV_8UC1, out_r);
+    cv::Mat dst_g_mat(target_h, target_w, CV_8UC1, out_g);
+    cv::Mat dst_b_mat(target_h, target_w, CV_8UC1, out_b);
 
-    // 3. Вычисляем центр изображения
-    cv::Point2f center(static_cast<float>(orig_w) / 2.0f, 
-                       static_cast<float>(orig_h) / 2.0f);
-
-    // 4. Преобразуем радианы в градусы (OpenCV работает в градусах)
-    // Отрицательный угол для поворота против часовой стрелки
-    double angle_degrees = angle * 180.0 / CV_PI;
-
-    // 5. Создаем матрицу поворота
-    cv::Mat rotation_matrix = cv::getRotationMatrix2D(center, angle_degrees, 1.0);
-
-    // 6. Настраиваем параметры для warpAffine
-    // borderMode=BORDER_CONSTANT заполнит области за пределами изображения цветом pad
-    cv::Scalar border_color_r(pad_r);
-    cv::Scalar border_color_g(pad_g);
-    cv::Scalar border_color_b(pad_b);
-
-    // 7. Выполняем поворот для каждого канала
-    cv::warpAffine(src_r_mat, dst_r_mat, rotation_matrix, 
-                   cv::Size(orig_w, orig_h), 
-                   cv::INTER_LINEAR, 
-                   cv::BORDER_CONSTANT, 
-                   border_color_r);
-
-    cv::warpAffine(src_g_mat, dst_g_mat, rotation_matrix, 
-                   cv::Size(orig_w, orig_h), 
-                   cv::INTER_LINEAR, 
-                   cv::BORDER_CONSTANT, 
-                   border_color_g);
-
-    cv::warpAffine(src_b_mat, dst_b_mat, rotation_matrix, 
-                   cv::Size(orig_w, orig_h), 
-                   cv::INTER_LINEAR, 
-                   cv::BORDER_CONSTANT, 
-                   border_color_b);
+    // Resize с INTER_CUBIC
+    cv::resize(src_r_mat, dst_r_mat, cv::Size(target_w, target_h), 0, 0, cv::INTER_CUBIC);
+    cv::resize(src_g_mat, dst_g_mat, cv::Size(target_w, target_h), 0, 0, cv::INTER_CUBIC);
+    cv::resize(src_b_mat, dst_b_mat, cv::Size(target_w, target_h), 0, 0, cv::INTER_CUBIC);
 }
 
+// ============================================================================
+// 4. Gamma коррекция
+// ============================================================================
+extern "C" EXPORT void apply_gamma_planar(
+    const uint8_t* in_r, const uint8_t* in_g, const uint8_t* in_b,
+    int32_t orig_w, int32_t orig_h,
+    float gamma_value,            // Например, 0.9
+    uint8_t* out_r, uint8_t* out_g, uint8_t* out_b
+) {
+    if (!in_r || !in_g || !in_b || !out_r || !out_g || !out_b) return;
+    if (orig_w <= 0 || orig_h <= 0 || gamma_value <= 0.0f) return;
 
+    // Если gamma == 1.0, изображение не меняется, просто копируем
+    if (std::abs(gamma_value - 1.0f) < 1e-5f) {
+        std::memcpy(out_r, in_r, orig_w * orig_h);
+        std::memcpy(out_g, in_g, orig_w * orig_h);
+        std::memcpy(out_b, in_b, orig_w * orig_h);
+        return;
+    }
 
+    cv::Mat src_r(orig_h, orig_w, CV_8UC1, const_cast<uint8_t*>(in_r));
+    cv::Mat src_g(orig_h, orig_w, CV_8UC1, const_cast<uint8_t*>(in_g));
+    cv::Mat src_b(orig_h, orig_w, CV_8UC1, const_cast<uint8_t*>(in_b));
+    cv::Mat dst_r(orig_h, orig_w, CV_8UC1, out_r);
+    cv::Mat dst_g(orig_h, orig_w, CV_8UC1, out_g);
+    cv::Mat dst_b(orig_h, orig_w, CV_8UC1, out_b);
 
+    // Создаем LUT (Look-Up Table) для Gamma коррекции
+    float inv_gamma = 1.0f / gamma_value;
+    std::vector<uint8_t> lut(256);
+    for (int i = 0; i < 256; ++i) {
+        lut[i] = static_cast<uint8_t>(std::round(std::pow(i / 255.0f, inv_gamma) * 255.0f));
+    }
+    cv::Mat lut_mat(1, 256, CV_8UC1, lut.data());
+
+    // Применяем LUT к каждому каналу
+    cv::LUT(src_r, lut_mat, dst_r);
+    cv::LUT(src_g, lut_mat, dst_g);
+    cv::LUT(src_b, lut_mat, dst_b);
+}
+
+// ============================================================================
+// 5. CLAHE (Contrast Limited Adaptive Histogram Equalization)
+// ============================================================================
+extern "C" EXPORT void apply_clahe_planar(
+    const uint8_t* in_r, const uint8_t* in_g, const uint8_t* in_b,
+    int32_t orig_w, int32_t orig_h,
+    float clip_limit,             // Например, 2.0
+    int32_t tile_grid_w,          // Например, 8
+    int32_t tile_grid_h,          // Например, 8
+    uint8_t* out_r, uint8_t* out_g, uint8_t* out_b
+) {
+    if (!in_r || !in_g || !in_b || !out_r || !out_g || !out_b) return;
+    if (orig_w <= 0 || orig_h <= 0) return;
+
+    // 1. Создаем заголовки Mat поверх массивов LabVIEW
+    cv::Mat in_mats[] = {
+        cv::Mat(orig_h, orig_w, CV_8UC1, const_cast<uint8_t*>(in_r)),
+        cv::Mat(orig_h, orig_w, CV_8UC1, const_cast<uint8_t*>(in_g)),
+        cv::Mat(orig_h, orig_w, CV_8UC1, const_cast<uint8_t*>(in_b))
+    };
+    cv::Mat out_mats[] = {
+        cv::Mat(orig_h, orig_w, CV_8UC1, out_r),
+        cv::Mat(orig_h, orig_w, CV_8UC1, out_g),
+        cv::Mat(orig_h, orig_w, CV_8UC1, out_b)
+    };
+
+    // 2. Объединяем в RGB
+    cv::Mat rgb_mat;
+    cv::merge(in_mats, 3, rgb_mat);
+
+    // 3. Конвертируем RGB -> LAB
+    cv::Mat lab_mat;
+    cv::cvtColor(rgb_mat, lab_mat, cv::COLOR_RGB2Lab);
+
+    // 4. Разделяем на каналы L, A, B
+    std::vector<cv::Mat> lab_channels;
+    cv::split(lab_mat, lab_channels);
+
+    // 5. Применяем CLAHE только к каналу яркости (L)
+    cv::Ptr<cv::CLAHE> clahe = cv::createCLAHE(clip_limit, cv::Size(tile_grid_w, tile_grid_h));
+    clahe->apply(lab_channels[0], lab_channels[0]);
+
+    // 6. Объединяем обратно и конвертируем LAB -> RGB
+    cv::merge(lab_channels, lab_mat);
+    cv::cvtColor(lab_mat, rgb_mat, cv::COLOR_Lab2RGB);
+
+    // 7. Разделяем результат обратно в плоские массивы LabVIEW
+    cv::split(rgb_mat, out_mats);
+}
+
+// ============================================================================
+// 6. Gamma + CLAHE (Комбинированная, максимально быстрая)
+// ============================================================================
+extern "C" EXPORT void apply_gamma_clahe_planar(
+    const uint8_t* in_r, const uint8_t* in_g, const uint8_t* in_b,
+    int32_t orig_w, int32_t orig_h,
+    float gamma_value,            // Например, 0.9
+    float clip_limit,             // Например, 2.0
+    int32_t tile_grid_w,          // Например, 8
+    int32_t tile_grid_h,          // Например, 8
+    uint8_t* out_r, uint8_t* out_g, uint8_t* out_b
+) {
+    if (!in_r || !in_g || !in_b || !out_r || !out_g || !out_b) return;
+    if (orig_w <= 0 || orig_h <= 0) return;
+
+    cv::Mat src_r(orig_h, orig_w, CV_8UC1, const_cast<uint8_t*>(in_r));
+    cv::Mat src_g(orig_h, orig_w, CV_8UC1, const_cast<uint8_t*>(in_g));
+    cv::Mat src_b(orig_h, orig_w, CV_8UC1, const_cast<uint8_t*>(in_b));
+    
+    // Используем выходные буферы как временные для Gamma
+    cv::Mat dst_r(orig_h, orig_w, CV_8UC1, out_r);
+    cv::Mat dst_g(orig_h, orig_w, CV_8UC1, out_g);
+    cv::Mat dst_b(orig_h, orig_w, CV_8UC1, out_b);
+
+    // Шаг 1: Gamma коррекция (сразу пишем в out_*)
+    if (gamma_value > 0.0f && std::abs(gamma_value - 1.0f) >= 1e-5f) {
+        float inv_gamma = 1.0f / gamma_value;
+        std::vector<uint8_t> lut(256);
+        for (int i = 0; i < 256; ++i) {
+            lut[i] = static_cast<uint8_t>(std::round(std::pow(i / 255.0f, inv_gamma) * 255.0f));
+        }
+        cv::Mat lut_mat(1, 256, CV_8UC1, lut.data());
+        cv::LUT(src_r, lut_mat, dst_r);
+        cv::LUT(src_g, lut_mat, dst_g);
+        cv::LUT(src_b, lut_mat, dst_b);
+    } else {
+        dst_r = src_r.clone();
+        dst_g = src_g.clone();
+        dst_b = src_b.clone();
+    }
+
+    // Шаг 2: CLAHE (используем уже обработанные Gamma буферы)
+    cv::Mat in_mats[] = { dst_r, dst_g, dst_b };
+    cv::Mat rgb_mat;
+    cv::merge(in_mats, 3, rgb_mat);
+
+    cv::Mat lab_mat;
+    cv::cvtColor(rgb_mat, lab_mat, cv::COLOR_RGB2Lab);
+
+    std::vector<cv::Mat> lab_channels;
+    cv::split(lab_mat, lab_channels);
+
+    cv::Ptr<cv::CLAHE> clahe = cv::createCLAHE(clip_limit, cv::Size(tile_grid_w, tile_grid_h));
+    clahe->apply(lab_channels[0], lab_channels[0]);
+
+    cv::merge(lab_channels, lab_mat);
+    cv::cvtColor(lab_mat, rgb_mat, cv::COLOR_Lab2RGB);
+
+    // Шаг 3: Разделяем итоговый результат обратно в out_r, out_g, out_b
+    cv::Mat out_mats[] = { dst_r, dst_g, dst_b };
+    cv::split(rgb_mat, out_mats);
+}
