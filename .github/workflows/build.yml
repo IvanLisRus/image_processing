@@ -33,24 +33,17 @@ jobs:
           # 1. Копируем нашу библиотеку
           cp build/image_processing.so linux_x64/ 2>/dev/null || cp build/libimage_processing.so linux_x64/image_processing.so
           
-          # 2. Ищем и копируем OpenCV библиотеки
+          # 2. Ищем OpenCV библиотеки (любой версии)
           echo "=== Поиск OpenCV библиотек ==="
           
-          # Показываем все найденные файлы OpenCV для диагностики
-          echo "Файлы в /usr/lib/x86_64-linux-gnu/:"
-          ls -la /usr/lib/x86_64-linux-gnu/libopencv_core* 2>/dev/null || echo "  Не найдено в /usr/lib/x86_64-linux-gnu/"
-          ls -la /usr/lib/x86_64-linux-gnu/libopencv_imgproc* 2>/dev/null || echo "  Не найдено в /usr/lib/x86_64-linux-gnu/"
+          # Показываем все найденные файлы для диагностики
+          echo "Файлы OpenCV в системе:"
+          find /usr -name "libopencv_core.so*" -type f 2>/dev/null | head -5
+          find /usr -name "libopencv_imgproc.so*" -type f 2>/dev/null | head -5
           
-          # Копируем все файлы libopencv_core и libopencv_imgproc (без фильтрации)
-          cp /usr/lib/x86_64-linux-gnu/libopencv_core.so* linux_x64/ 2>/dev/null || true
-          cp /usr/lib/x86_64-linux-gnu/libopencv_imgproc.so* linux_x64/ 2>/dev/null || true
-          
-          # Если не нашли, пробуем другие пути
-          if [ ! -f linux_x64/libopencv_core.so* ]; then
-            echo "Пробуем другие пути..."
-            find /usr -name "libopencv_core.so*" -type f 2>/dev/null | head -1 | xargs -I {} cp {} linux_x64/ 2>/dev/null || true
-            find /usr -name "libopencv_imgproc.so*" -type f 2>/dev/null | head -1 | xargs -I {} cp {} linux_x64/ 2>/dev/null || true
-          fi
+          # Копируем основные файлы (без фильтрации по версии)
+          find /usr -name "libopencv_core.so*" -type f 2>/dev/null | head -1 | xargs -I {} cp {} linux_x64/
+          find /usr -name "libopencv_imgproc.so*" -type f 2>/dev/null | head -1 | xargs -I {} cp {} linux_x64/
           
           # 3. Проверяем результат
           echo "=== Итоговый список файлов ==="
@@ -61,13 +54,12 @@ jobs:
           cd linux_x64
           ldd image_processing.so | grep -E "(opencv|not found)"
           cd ..
-      
+          
       - name: Upload Linux Binaries
         uses: actions/upload-artifact@v4
         with:
           name: linux-binaries
           path: linux_x64/
-          
           
 
   build-windows:
