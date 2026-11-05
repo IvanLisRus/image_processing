@@ -33,73 +33,59 @@ jobs:
           # 1. Копируем нашу библиотеку
           cp build/image_processing.so linux_x64/ 2>/dev/null || cp build/libimage_processing.so linux_x64/image_processing.so
           
-          # 2. Проверяем, какие версии OpenCV установлены
-          echo "=== Поиск всех версий OpenCV ==="
-          echo "Все файлы libopencv_core:"
-          find /usr -name "libopencv_core.so*" -type f 2>/dev/null | sort
-          echo "Все файлы libopencv_imgproc:"
-          find /usr -name "libopencv_imgproc.so*" -type f 2>/dev/null | sort
-          
-          # 3. Ищем RELEASE-версии (без суффикса 'd')
-          echo "=== Поиск release-версий ==="
+          # 2. Копируем OpenCV (release-версии)
+          echo "=== Копирование OpenCV ==="
           CORE_RELEASE=$(find /usr -name "libopencv_core.so.[0-9]*" -type f ! -name "*d" 2>/dev/null | sort | tail -1)
           IMGPROC_RELEASE=$(find /usr -name "libopencv_imgproc.so.[0-9]*" -type f ! -name "*d" 2>/dev/null | sort | tail -1)
           
           if [ -n "$CORE_RELEASE" ] && [ -n "$IMGPROC_RELEASE" ]; then
-            echo "✓ Найдены release-версии:"
-            echo "  Core: $CORE_RELEASE"
-            echo "  ImgProc: $IMGPROC_RELEASE"
-            
-            # Копируем release-версии
             cp "$CORE_RELEASE" linux_x64/
             cp "$IMGPROC_RELEASE" linux_x64/
             
-            # Создаем симлинки для совместимости
             cd linux_x64
             CORE_BASE=$(basename "$CORE_RELEASE")
             IMGPROC_BASE=$(basename "$IMGPROC_RELEASE")
             
-            # Извлекаем версию (например, 4.5.4)
-            CORE_VER=$(echo "$CORE_BASE" | grep -oP '\d+\.\d+\.\d+')
-            IMGPROC_VER=$(echo "$IMGPROC_BASE" | grep -oP '\d+\.\d+\.\d+')
-            
-            # Создаем симлинки: .so.4.5d -> .so.4.5.4
+            # Создаем симлинки для совместимости
             ln -sf "$CORE_BASE" "libopencv_core.so.4.5d"
-            ln -sf "$CORE_BASE" "libopencv_core.so.${CORE_VER%.*}"
-            ln -sf "$CORE_BASE" "libopencv_core.so.${CORE_VER%%.*}"
+            ln -sf "$CORE_BASE" "libopencv_core.so.4.5"
+            ln -sf "$CORE_BASE" "libopencv_core.so.4"
             ln -sf "$CORE_BASE" "libopencv_core.so"
             
             ln -sf "$IMGPROC_BASE" "libopencv_imgproc.so.4.5d"
-            ln -sf "$IMGPROC_BASE" "libopencv_imgproc.so.${IMGPROC_VER%.*}"
-            ln -sf "$IMGPROC_BASE" "libopencv_imgproc.so.${IMGPROC_VER%%.*}"
+            ln -sf "$IMGPROC_BASE" "libopencv_imgproc.so.4.5"
+            ln -sf "$IMGPROC_BASE" "libopencv_imgproc.so.4"
             ln -sf "$IMGPROC_BASE" "libopencv_imgproc.so"
             
             cd ..
           else
-            echo "❌ Release-версии не найдены! Пробуем debug-версии..."
-            # Если release нет, берем debug и переименовываем
-            CORE_DEBUG=$(find /usr -name "libopencv_core.so.[0-9]*" -type f 2>/dev/null | sort | tail -1)
-            IMGPROC_DEBUG=$(find /usr -name "libopencv_imgproc.so.[0-9]*" -type f 2>/dev/null | sort | tail -1)
+            echo "❌ OpenCV не найден!"
+            exit 1
+          fi
+          
+          # 3. Копируем TBB и создаем симлинк для совместимости
+          echo "=== Копирование TBB ==="
+          TBB_LIB=$(find /usr -name "libtbb.so.12" -type f 2>/dev/null | head -1)
+          
+          if [ -n "$TBB_LIB" ]; then
+            echo "✓ Найдена TBB: $TBB_LIB"
+            cp "$TBB_LIB" linux_x64/
             
-            if [ -n "$CORE_DEBUG" ] && [ -n "$IMGPROC_DEBUG" ]; then
-              echo "⚠️  Используем debug-версии (переименовываем):"
-              cp "$CORE_DEBUG" linux_x64/libopencv_core.so.4.5.4
-              cp "$IMGPROC_DEBUG" linux_x64/libopencv_imgproc.so.4.5.4
-              
+            cd linux_x64
+            # Создаем симлинк libtbb.so.2 → libtbb.so.12 для совместимости
+            ln -sf libtbb.so.12 libtbb.so.2
+            cd ..
+          else
+            echo "⚠️  TBB не найдена, пробуем другие версии..."
+            TBB_LIB=$(find /usr -name "libtbb.so.*" -type f 2>/dev/null | head -1)
+            if [ -n "$TBB_LIB" ]; then
+              cp "$TBB_LIB" linux_x64/
               cd linux_x64
-              ln -sf libopencv_core.so.4.5.4 libopencv_core.so.4.5d
-              ln -sf libopencv_core.so.4.5.4 libopencv_core.so.4.5
-              ln -sf libopencv_core.so.4.5.4 libopencv_core.so.4
-              ln -sf libopencv_core.so.4.5.4 libopencv_core.so
-              
-              ln -sf libopencv_imgproc.so.4.5.4 libopencv_imgproc.so.4.5d
-              ln -sf libopencv_imgproc.so.4.5.4 libopencv_imgproc.so.4.5
-              ln -sf libopencv_imgproc.so.4.5.4 libopencv_imgproc.so.4
-              ln -sf libopencv_imgproc.so.4.5.4 libopencv_imgproc.so
-              
+              TBB_BASE=$(basename "$TBB_LIB")
+              ln -sf "$TBB_BASE" libtbb.so.2
               cd ..
             else
-              echo "❌ OpenCV не найден!"
+              echo "❌ TBB не найдена!"
               exit 1
             fi
           fi
@@ -110,7 +96,7 @@ jobs:
           
           echo "=== Проверка зависимостей ==="
           cd linux_x64
-          ldd image_processing.so | grep -E "(opencv|not found)"
+          ldd image_processing.so | grep -E "(opencv|tbb|not found)"
           cd ..
           
       - name: Upload Linux Binaries
