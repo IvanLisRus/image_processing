@@ -13,6 +13,7 @@
 	<Item Name="Test" Type="Folder">
 		<Item Name="Test Resize.vi" Type="VI" URL="../Test/Test Resize.vi"/>
 		<Item Name="Test Gamma and CLAHE.vi" Type="VI" URL="../Test/Test Gamma and CLAHE.vi"/>
+		<Item Name="Test Rotate.vi" Type="VI" URL="../Test/Test Rotate.vi"/>
 	</Item>
 	<Item Name="Get Path.vi" Type="VI" URL="../SubVI/Get Path.vi"/>
 	<Item Name="resize_cubic_planar.vi" Type="VI" URL="../SubVI/resize_cubic_planar.vi"/>
@@ -21,4 +22,5 @@
 	<Item Name="apply_gamma_planar.vi" Type="VI" URL="../SubVI/apply_gamma_planar.vi"/>
 	<Item Name="apply_clahe_planar.vi" Type="VI" URL="../SubVI/apply_clahe_planar.vi"/>
 	<Item Name="apply_gamma_clahe_planar.vi" Type="VI" URL="../SubVI/apply_gamma_clahe_planar.vi"/>
+	<Item Name="rotate_coin_planar.vi" Type="VI" URL="../SubVI/rotate_coin_planar.vi"/>
 </Library>
