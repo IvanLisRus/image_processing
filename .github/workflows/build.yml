@@ -33,23 +33,81 @@ jobs:
           # 1. Копируем нашу библиотеку
           cp build/image_processing.so linux_x64/ 2>/dev/null || cp build/libimage_processing.so linux_x64/image_processing.so
           
-          # 2. Ищем OpenCV библиотеки (любой версии)
-          echo "=== Поиск OpenCV библиотек ==="
+          # 2. Проверяем, какие версии OpenCV установлены
+          echo "=== Поиск всех версий OpenCV ==="
+          echo "Все файлы libopencv_core:"
+          find /usr -name "libopencv_core.so*" -type f 2>/dev/null | sort
+          echo "Все файлы libopencv_imgproc:"
+          find /usr -name "libopencv_imgproc.so*" -type f 2>/dev/null | sort
           
-          # Показываем все найденные файлы для диагностики
-          echo "Файлы OpenCV в системе:"
-          find /usr -name "libopencv_core.so*" -type f 2>/dev/null | head -5
-          find /usr -name "libopencv_imgproc.so*" -type f 2>/dev/null | head -5
+          # 3. Ищем RELEASE-версии (без суффикса 'd')
+          echo "=== Поиск release-версий ==="
+          CORE_RELEASE=$(find /usr -name "libopencv_core.so.[0-9]*" -type f ! -name "*d" 2>/dev/null | sort | tail -1)
+          IMGPROC_RELEASE=$(find /usr -name "libopencv_imgproc.so.[0-9]*" -type f ! -name "*d" 2>/dev/null | sort | tail -1)
           
-          # Копируем основные файлы (без фильтрации по версии)
-          find /usr -name "libopencv_core.so*" -type f 2>/dev/null | head -1 | xargs -I {} cp {} linux_x64/
-          find /usr -name "libopencv_imgproc.so*" -type f 2>/dev/null | head -1 | xargs -I {} cp {} linux_x64/
+          if [ -n "$CORE_RELEASE" ] && [ -n "$IMGPROC_RELEASE" ]; then
+            echo "✓ Найдены release-версии:"
+            echo "  Core: $CORE_RELEASE"
+            echo "  ImgProc: $IMGPROC_RELEASE"
+            
+            # Копируем release-версии
+            cp "$CORE_RELEASE" linux_x64/
+            cp "$IMGPROC_RELEASE" linux_x64/
+            
+            # Создаем симлинки для совместимости
+            cd linux_x64
+            CORE_BASE=$(basename "$CORE_RELEASE")
+            IMGPROC_BASE=$(basename "$IMGPROC_RELEASE")
+            
+            # Извлекаем версию (например, 4.5.4)
+            CORE_VER=$(echo "$CORE_BASE" | grep -oP '\d+\.\d+\.\d+')
+            IMGPROC_VER=$(echo "$IMGPROC_BASE" | grep -oP '\d+\.\d+\.\d+')
+            
+            # Создаем симлинки: .so.4.5d -> .so.4.5.4
+            ln -sf "$CORE_BASE" "libopencv_core.so.4.5d"
+            ln -sf "$CORE_BASE" "libopencv_core.so.${CORE_VER%.*}"
+            ln -sf "$CORE_BASE" "libopencv_core.so.${CORE_VER%%.*}"
+            ln -sf "$CORE_BASE" "libopencv_core.so"
+            
+            ln -sf "$IMGPROC_BASE" "libopencv_imgproc.so.4.5d"
+            ln -sf "$IMGPROC_BASE" "libopencv_imgproc.so.${IMGPROC_VER%.*}"
+            ln -sf "$IMGPROC_BASE" "libopencv_imgproc.so.${IMGPROC_VER%%.*}"
+            ln -sf "$IMGPROC_BASE" "libopencv_imgproc.so"
+            
+            cd ..
+          else
+            echo "❌ Release-версии не найдены! Пробуем debug-версии..."
+            # Если release нет, берем debug и переименовываем
+            CORE_DEBUG=$(find /usr -name "libopencv_core.so.[0-9]*" -type f 2>/dev/null | sort | tail -1)
+            IMGPROC_DEBUG=$(find /usr -name "libopencv_imgproc.so.[0-9]*" -type f 2>/dev/null | sort | tail -1)
+            
+            if [ -n "$CORE_DEBUG" ] && [ -n "$IMGPROC_DEBUG" ]; then
+              echo "⚠️  Используем debug-версии (переименовываем):"
+              cp "$CORE_DEBUG" linux_x64/libopencv_core.so.4.5.4
+              cp "$IMGPROC_DEBUG" linux_x64/libopencv_imgproc.so.4.5.4
+              
+              cd linux_x64
+              ln -sf libopencv_core.so.4.5.4 libopencv_core.so.4.5d
+              ln -sf libopencv_core.so.4.5.4 libopencv_core.so.4.5
+              ln -sf libopencv_core.so.4.5.4 libopencv_core.so.4
+              ln -sf libopencv_core.so.4.5.4 libopencv_core.so
+              
+              ln -sf libopencv_imgproc.so.4.5.4 libopencv_imgproc.so.4.5d
+              ln -sf libopencv_imgproc.so.4.5.4 libopencv_imgproc.so.4.5
+              ln -sf libopencv_imgproc.so.4.5.4 libopencv_imgproc.so.4
+              ln -sf libopencv_imgproc.so.4.5.4 libopencv_imgproc.so
+              
+              cd ..
+            else
+              echo "❌ OpenCV не найден!"
+              exit 1
+            fi
+          fi
           
-          # 3. Проверяем результат
+          # 4. Проверяем результат
           echo "=== Итоговый список файлов ==="
           ls -lh linux_x64/
           
-          # 4. Проверяем зависимости
           echo "=== Проверка зависимостей ==="
           cd linux_x64
           ldd image_processing.so | grep -E "(opencv|not found)"
