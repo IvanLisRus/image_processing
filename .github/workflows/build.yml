@@ -26,79 +26,54 @@ jobs:
       
       - name: Prepare Linux Binaries
         run: |
-          echo "=== Подготовка автономной библиотеки ==="
+          echo "=== Подготовка автономной библиотеки (БЕЗ СИМВОЛИЧЕСКИХ ССЫЛОК) ==="
           rm -rf linux_x64
           mkdir -p linux_x64
           
           # 1. Копируем нашу библиотеку
-          cp build/image_processing.so linux_x64/ 2>/dev/null || cp build/libimage_processing.so linux_x64/image_processing.so
+          cp build/image_processing.so linux_x64/
           
-          # 2. Ищем OpenCV библиотеки (любые версии)
-          echo "=== Поиск OpenCV библиотек ==="
+          # 2. Копируем OpenCV библиотеки (копируем сами файлы, не создаем симлинки)
+          echo "=== Копирование OpenCV библиотек ==="
           
-          # Показываем все найденные файлы для диагностики
-          echo "Все файлы libopencv_core:"
-          find /usr -name "libopencv_core.so*" -type f 2>/dev/null | sort
-          echo "Все файлы libopencv_imgproc:"
-          find /usr -name "libopencv_imgproc.so*" -type f 2>/dev/null | sort
-          
-          # Берем первые найденные файлы (без фильтрации)
+          # Находим и копируем файлы OpenCV (любые версии)
           CORE_LIB=$(find /usr -name "libopencv_core.so*" -type f 2>/dev/null | head -1)
           IMGPROC_LIB=$(find /usr -name "libopencv_imgproc.so*" -type f 2>/dev/null | head -1)
           
           if [ -n "$CORE_LIB" ] && [ -n "$IMGPROC_LIB" ]; then
-            echo "✓ Найдены библиотеки:"
+            echo "✓ Копируем OpenCV:"
             echo "  Core: $CORE_LIB"
             echo "  ImgProc: $IMGPROC_LIB"
             
+            # Копируем файлы с их оригинальными именами
             cp "$CORE_LIB" linux_x64/
             cp "$IMGPROC_LIB" linux_x64/
-            
-            # Создаем симлинки для совместимости
-            cd linux_x64
-            CORE_BASE=$(basename "$CORE_LIB")
-            IMGPROC_BASE=$(basename "$IMGPROC_LIB")
-            
-            ln -sf "$CORE_BASE" libopencv_core.so
-            ln -sf "$CORE_BASE" libopencv_core.so.4.5d
-            ln -sf "$CORE_BASE" libopencv_core.so.4.5
-            ln -sf "$CORE_BASE" libopencv_core.so.4
-            
-            ln -sf "$IMGPROC_BASE" libopencv_imgproc.so
-            ln -sf "$IMGPROC_BASE" libopencv_imgproc.so.4.5d
-            ln -sf "$IMGPROC_BASE" libopencv_imgproc.so.4.5
-            ln -sf "$IMGPROC_BASE" libopencv_imgproc.so.4
-            
-            cd ..
           else
             echo "❌ OpenCV не найден!"
             exit 1
           fi
           
-          # 3. Копируем TBB
+          # 3. Копируем TBB (если есть)
           echo "=== Копирование TBB ==="
           TBB_LIB=$(find /usr -name "libtbb.so*" -type f 2>/dev/null | head -1)
           
           if [ -n "$TBB_LIB" ]; then
-            echo "✓ Найдена TBB: $TBB_LIB"
+            echo "✓ Копируем TBB: $TBB_LIB"
             cp "$TBB_LIB" linux_x64/
-            
-            cd linux_x64
-            TBB_BASE=$(basename "$TBB_LIB")
-            ln -sf "$TBB_BASE" libtbb.so.2
-            cd ..
           else
             echo "⚠️  TBB не найдена"
           fi
           
-          # 4. Проверяем результат
-          echo "=== Итоговый список файлов ==="
+          # 4. Показываем результат
+          echo "=== Итоговый список файлов (ТОЛЬКО РЕАЛЬНЫЕ ФАЙЛЫ) ==="
           ls -lh linux_x64/
           
+          # 5. Проверяем зависимости
           echo "=== Проверка зависимостей ==="
           cd linux_x64
           ldd image_processing.so | grep -E "(opencv|tbb|not found)"
           cd ..
+          
           
       - name: Upload Linux Binaries
         uses: actions/upload-artifact@v4
