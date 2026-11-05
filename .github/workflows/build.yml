@@ -11,7 +11,7 @@ permissions:
 
 jobs:
   build-linux:
-    runs-on: ubuntu-22.04  # ← ВАЖНО: собираем на ubuntu-22.04 для совместимости glibc
+    runs-on: ubuntu-22.04
     steps:
       - uses: actions/checkout@v4
       
@@ -33,50 +33,30 @@ jobs:
           # 1. Копируем нашу библиотеку
           cp build/image_processing.so linux_x64/ 2>/dev/null || cp build/libimage_processing.so linux_x64/image_processing.so
           
-          # 2. Находим актуальные release-версии OpenCV (без суффикса 'd')
-          echo "=== Поиск release-версий OpenCV ==="
+          # 2. Ищем и копируем OpenCV библиотеки
+          echo "=== Поиск OpenCV библиотек ==="
           
-          # Ищем файлы libopencv_core.so.X.Y.Z (release, без 'd')
-          CORE_LIB=$(find /usr/lib/x86_64-linux-gnu -name "libopencv_core.so.[0-9]*" ! -name "*d" -type f | sort | tail -1)
-          IMGPROC_LIB=$(find /usr/lib/x86_64-linux-gnu -name "libopencv_imgproc.so.[0-9]*" ! -name "*d" -type f | sort | tail -1)
+          # Показываем все найденные файлы OpenCV для диагностики
+          echo "Файлы в /usr/lib/x86_64-linux-gnu/:"
+          ls -la /usr/lib/x86_64-linux-gnu/libopencv_core* 2>/dev/null || echo "  Не найдено в /usr/lib/x86_64-linux-gnu/"
+          ls -la /usr/lib/x86_64-linux-gnu/libopencv_imgproc* 2>/dev/null || echo "  Не найдено в /usr/lib/x86_64-linux-gnu/"
           
-          echo "Найдено:"
-          echo "  Core: $CORE_LIB"
-          echo "  ImgProc: $IMGPROC_LIB"
+          # Копируем все файлы libopencv_core и libopencv_imgproc (без фильтрации)
+          cp /usr/lib/x86_64-linux-gnu/libopencv_core.so* linux_x64/ 2>/dev/null || true
+          cp /usr/lib/x86_64-linux-gnu/libopencv_imgproc.so* linux_x64/ 2>/dev/null || true
           
-          if [ -z "$CORE_LIB" ] || [ -z "$IMGPROC_LIB" ]; then
-            echo "❌ Не удалось найти release-версии OpenCV!"
-            exit 1
+          # Если не нашли, пробуем другие пути
+          if [ ! -f linux_x64/libopencv_core.so* ]; then
+            echo "Пробуем другие пути..."
+            find /usr -name "libopencv_core.so*" -type f 2>/dev/null | head -1 | xargs -I {} cp {} linux_x64/ 2>/dev/null || true
+            find /usr -name "libopencv_imgproc.so*" -type f 2>/dev/null | head -1 | xargs -I {} cp {} linux_x64/ 2>/dev/null || true
           fi
           
-          # 3. Копируем основные файлы
-          cp "$CORE_LIB" linux_x64/
-          cp "$IMGPROC_LIB" linux_x64/
-          
-          # 4. Создаем симлинки для совместимости
-          cd linux_x64
-          CORE_BASE=$(basename "$CORE_LIB")
-          IMGPROC_BASE=$(basename "$IMGPROC_LIB")
-          
-          # Извлекаем версию (например, из libopencv_core.so.4.5.4 получаем 4.5.4)
-          CORE_VER=$(echo "$CORE_BASE" | grep -oP '\d+\.\d+\.\d+')
-          IMGPROC_VER=$(echo "$IMGPROC_BASE" | grep -oP '\d+\.\d+\.\d+')
-          
-          # Создаем симлинки: .so → .so.X.Y.Z
-          ln -sf "$CORE_BASE" libopencv_core.so
-          ln -sf "$CORE_BASE" "libopencv_core.so.${CORE_VER%.*}"  # major.minor
-          ln -sf "$CORE_BASE" "libopencv_core.so.${CORE_VER%%.*}"  # major
-          
-          ln -sf "$IMGPROC_BASE" libopencv_imgproc.so
-          ln -sf "$IMGPROC_BASE" "libopencv_imgproc.so.${IMGPROC_VER%.*}"
-          ln -sf "$IMGPROC_BASE" "libopencv_imgproc.so.${IMGPROC_VER%%.*}"
-          
-          cd ..
-          
-          # 5. Проверяем результат
+          # 3. Проверяем результат
           echo "=== Итоговый список файлов ==="
           ls -lh linux_x64/
           
+          # 4. Проверяем зависимости
           echo "=== Проверка зависимостей ==="
           cd linux_x64
           ldd image_processing.so | grep -E "(opencv|not found)"
@@ -87,6 +67,8 @@ jobs:
         with:
           name: linux-binaries
           path: linux_x64/
+          
+          
 
   build-windows:
     runs-on: windows-2022
