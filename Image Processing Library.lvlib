@@ -1,8 +1,9 @@
 ﻿<?xml version='1.0' encoding='UTF-8'?>
-<Library LVVersion="17008000">
+<Library LVVersion="18008000">
 	<Property Name="NI.Lib.HelpPath" Type="Str"></Property>
-	<Property Name="NI.Lib.Icon" Type="Bin">&amp;Q#!!!!!!!)!"1!&amp;!!!-!%!!!@````]!!!!"!!%!!!*%!!!*Q(C=\&gt;7R=&gt;N!%)8B2Y]#+73I4--7NA5WY)!N&lt;!NES*!N&lt;+&lt;53&amp;Q!%R7Q,)%NM!8IP]//"#E102ZLL%#!&amp;C4?Y?Y_!D?1V,&gt;&lt;[5&lt;DN7XXY@9(\?0&lt;]`(D^NX\[TEP2DO-UW(WO:PP5_@_/1U]TNPG\;`^XUT_&amp;\`P3PO64&gt;`&lt;^`:`N`X62@LJ;X;B^C+CEAL++6/&lt;;ETS*%`S*%`S*!`S)!`S)!`S)(&gt;S*X&gt;S*X&gt;S*T&gt;S)T&gt;S)T&gt;S)_]\O=B&amp;,H*)S?4*2-GAS1$*R6#5("*0YEE]C9&gt;4*:\%EXA34_,B%C7?R*.Y%E`CI:M34_**0)EH]4"5FW4@S@%E(I:8Y!E]A3@Q""[G6/!*!-&amp;EQ=$")$!5.!:@!E`A#4R]6?!*0)%H]!1?GB6Y!E`A#4S"BS\^LE48N*U=$]0)]4A?R_.Y(!^$S`%Y(M@D?"Q0U]HR/"Y(Y5TI$!Z"4C@H!O@%]4A?0O2Y()`D=4S/B[&lt;_B,T@G;:J/TE?QW.Y$)`B-4Q-)=.D?!S0Y4%]$#P$9XA-D_%R0%QFQW.Y$)]"-3:F?BG$'2W.CYT!]0$86YPVJR2&gt;9HW8;P'K&amp;K6KM;E7E7JRK"[[[G'K(J,KZKNOKOJGK7[#[M?JU#K-;B*6ZX;B,BT0V*%;K!/VJ4&lt;5GFJ2S^&lt;V(V^YO6RU0J^V0"YV$)-/BY/WW[UWGYX7[\67KZ77S_8,;_#"`?7&amp;-,W8^HRP^&lt;BYIBY7P_^0J_(8X=]B\E\\W[GNV3@^,`U#\U&lt;^U(R=\N%T&amp;NL38A!!!!!</Property>
+	<Property Name="NI.Lib.Icon" Type="Bin">'!#!!!!!!!)!"1!&amp;!!!-!%!!!@````]!!!!"!!%!!!*%!!!*Q(C=\&gt;7R=&gt;N!%)8B2Y]#+73I4--7NA5WY)!N&lt;!NES*!N&lt;+&lt;53&amp;Q!%R7Q,)%NM!8IP]//"#E102ZLL%#!&amp;C4?Y?Y_!D?1V,&gt;&lt;[5&lt;DN7XXY@9(\?0&lt;]`(D^NX\[TEP2DO-UW(WO:PP5_@_/1U]TNPG\;`^XUT_&amp;\`P3PO64&gt;`&lt;^`:`N`X62@LJ;X;B^C+CEAL++6/&lt;;ETS*%`S*%`S*!`S)!`S)!`S)(&gt;S*X&gt;S*X&gt;S*T&gt;S)T&gt;S)T&gt;S)_]\O=B&amp;,H*)S?4*2-GAS1$*R6#5("*0YEE]C9&gt;4*:\%EXA34_,B%C7?R*.Y%E`CI:M34_**0)EH]4"5FW4@S@%E(I:8Y!E]A3@Q""[G6/!*!-&amp;EQ=$")$!5.!:@!E`A#4R]6?!*0)%H]!1?GB6Y!E`A#4S"BS\^LE48N*U=$]0)]4A?R_.Y(!^$S`%Y(M@D?"Q0U]HR/"Y(Y5TI$!Z"4C@H!O@%]4A?0O2Y()`D=4S/B[&lt;_B,T@G;:J/TE?QW.Y$)`B-4Q-)=.D?!S0Y4%]$#P$9XA-D_%R0%QFQW.Y$)]"-3:F?BG$'2W.CYT!]0$86YPVJR2&gt;9HW8;P'K&amp;K6KM;E7E7JRK"[[[G'K(J,KZKNOKOJGK7[#[M?JU#K-;B*6ZX;B,BT0V*%;K!/VJ4&lt;5GFJ2S^&lt;V(V^YO6RU0J^V0"YV$)-/BY/WW[UWGYX7[\67KZ77S_8,;_#"`?7&amp;-,W8^HRP^&lt;BYIBY7P_^0J_(8X=]B\E\\W[GNV3@^,`U#\U&lt;^U(R=\N%T&amp;NL38A!!!!!</Property>
 	<Property Name="NI.Lib.LocalName" Type="Str">Image Processing Library</Property>
+	<Property Name="NI.Lib.SourceVersion" Type="Int">402685952</Property>
 	<Property Name="NI.Lib.Version" Type="Str">1.0.0.0</Property>
 	<Property Name="NI.LV.All.SaveVersion" Type="Str">17.0</Property>
 	<Property Name="NI.LV.All.SourceOnly" Type="Bool">true</Property>
@@ -14,6 +15,7 @@
 		<Item Name="Test Resize.vi" Type="VI" URL="../Test/Test Resize.vi"/>
 		<Item Name="Test Gamma and CLAHE.vi" Type="VI" URL="../Test/Test Gamma and CLAHE.vi"/>
 		<Item Name="Test Rotate.vi" Type="VI" URL="../Test/Test Rotate.vi"/>
+		<Item Name="Test Crop.vi" Type="VI" URL="../Test/Test Crop.vi"/>
 	</Item>
 	<Item Name="Get Path.vi" Type="VI" URL="../SubVI/Get Path.vi"/>
 	<Item Name="resize_cubic_planar.vi" Type="VI" URL="../SubVI/resize_cubic_planar.vi"/>
@@ -23,4 +25,5 @@
 	<Item Name="apply_clahe_planar.vi" Type="VI" URL="../SubVI/apply_clahe_planar.vi"/>
 	<Item Name="apply_gamma_clahe_planar.vi" Type="VI" URL="../SubVI/apply_gamma_clahe_planar.vi"/>
 	<Item Name="rotate_coin_planar.vi" Type="VI" URL="../SubVI/rotate_coin_planar.vi"/>
+	<Item Name="crop_coin_planar.vi" Type="VI" URL="../SubVI/crop_coin_planar.vi"/>
 </Library>

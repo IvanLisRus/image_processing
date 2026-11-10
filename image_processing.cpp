@@ -170,27 +170,27 @@ extern "C" EXPORT void crop_coin_planar(
         return;
     }
 
-    // Денормализация
+    // 1. Денормализация координат
     float cx = center_x * orig_w;
     float cy = center_y * orig_h;
     float w_px = width * orig_w;
     float h_px = height * orig_h;
 
-    // Диаметр = MAX(ширина, высота)
+    // 2. Диаметр = MAX(ширина, высота)
     float diameter = std::max(w_px, h_px);
     float radius = diameter / 2.0f;
 
-    // Bounding box
+    // 3. Bounding box монеты
     int left = static_cast<int>(std::round(cx - radius));
     int top = static_cast<int>(std::round(cy - radius));
     int right = static_cast<int>(std::round(cx + radius));
     int bottom = static_cast<int>(std::round(cy + radius));
 
-    // Проверка видимости
+    // 4. Проверка видимости
     bool fully_visible = (left >= 0) && (right < orig_w) && (top >= 0) && (bottom < orig_h);
     *is_fully_visible = fully_visible ? 1 : 0;
 
-    // Обрезаем по границам изображения
+    // 5. Обрезаем по границам изображения
     int crop_left = std::max(0, left);
     int crop_top = std::max(0, top);
     int crop_right = std::min(orig_w - 1, right);
@@ -208,41 +208,42 @@ extern "C" EXPORT void crop_coin_planar(
     *crop_w = final_width;
     *crop_h = final_height;
 
-    // Mat поверх массивов LabVIEW
-    cv::Mat src_r(orig_h, orig_w, CV_8UC1, const_cast<uint8_t*>(in_r));
-    cv::Mat src_g(orig_h, orig_w, CV_8UC1, const_cast<uint8_t*>(in_g));
-    cv::Mat src_b(orig_h, orig_w, CV_8UC1, const_cast<uint8_t*>(in_b));
+    // 6. Заполняем ВСЕ выходное изображение цветом фона
+    size_t total_pixels = static_cast<size_t>(orig_w) * static_cast<size_t>(orig_h);
+    std::memset(out_r, pad_r, total_pixels);
+    std::memset(out_g, pad_g, total_pixels);
+    std::memset(out_b, pad_b, total_pixels);
 
-    cv::Mat dst_r(orig_h, orig_w, CV_8UC1, out_r);
-    cv::Mat dst_g(orig_h, orig_w, CV_8UC1, out_g);
-    cv::Mat dst_b(orig_h, orig_w, CV_8UC1, out_b);
+    // 7. Центр круга монеты в координатах кропа
+    float circle_center_x = cx - crop_left;
+    float circle_center_y = cy - crop_top;
+    float radius_sq = radius * radius;
 
-    // Заполняем фоном
-    dst_r.setTo(pad_r);
-    dst_g.setTo(pad_g);
-    dst_b.setTo(pad_b);
+    // 8. Копируем пиксели кропа в НАЧАЛО выходного массива
+    for (int y = 0; y < final_height; ++y) {
+        for (int x = 0; x < final_width; ++x) {
+            // Проверяем, внутри ли круга
+            float dx = x - circle_center_x;
+            float dy = y - circle_center_y;
+            float dist_sq = dx * dx + dy * dy;
 
-    // Копируем ROI
-    cv::Rect roi(crop_left, crop_top, final_width, final_height);
-    src_r(roi).copyTo(dst_r(roi));
-    src_g(roi).copyTo(dst_g(roi));
-    src_b(roi).copyTo(dst_b(roi));
+            if (dist_sq <= radius_sq) {
+                // Координата в исходном изображении
+                int src_x = crop_left + x;
+                int src_y = crop_top + y;
 
-    // Круговая маска
-    cv::Mat mask(final_height, final_width, CV_8UC1, cv::Scalar(0));
-    cv::Point circle_center(crop_left - left + static_cast<int>(std::round(radius)),
-                            crop_top - top + static_cast<int>(std::round(radius)));
-    cv::circle(mask, circle_center, static_cast<int>(std::round(radius)), cv::Scalar(255), -1);
+                // Индекс в выходном массиве (начинается с 0, кроп в левом верхнем углу)
+                size_t dst_idx = static_cast<size_t>(y) * orig_w + x;
+                // Индекс в исходном массиве
+                size_t src_idx = static_cast<size_t>(src_y) * orig_w + src_x;
 
-    // Применяем маску
-    cv::Mat masked_r, masked_g, masked_b;
-    dst_r(roi).copyTo(masked_r, mask);
-    dst_g(roi).copyTo(masked_g, mask);
-    dst_b(roi).copyTo(masked_b, mask);
-
-    masked_r.copyTo(dst_r(roi));
-    masked_g.copyTo(dst_g(roi));
-    masked_b.copyTo(dst_b(roi));
+                out_r[dst_idx] = in_r[src_idx];
+                out_g[dst_idx] = in_g[src_idx];
+                out_b[dst_idx] = in_b[src_idx];
+            }
+            // Иначе оставляем цвет фона (уже установлен в шаге 6)
+        }
+    }
 }
 
 // ============================================================================
