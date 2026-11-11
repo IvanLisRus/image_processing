@@ -208,18 +208,12 @@ extern "C" EXPORT void crop_coin_planar(
     *crop_w = final_width;
     *crop_h = final_height;
 
-    // 6. Заполняем ВСЕ выходное изображение цветом фона
-    size_t total_pixels = static_cast<size_t>(orig_w) * static_cast<size_t>(orig_h);
-    std::memset(out_r, pad_r, total_pixels);
-    std::memset(out_g, pad_g, total_pixels);
-    std::memset(out_b, pad_b, total_pixels);
-
-    // 7. Центр круга монеты в координатах кропа
+    // 6. Центр круга монеты в координатах кропа
     float circle_center_x = cx - crop_left;
     float circle_center_y = cy - crop_top;
     float radius_sq = radius * radius;
 
-    // 8. Копируем пиксели кропа в НАЧАЛО выходного массива
+    // 7. Копируем пиксели кропа УПЛОТНЕННО (без разрывов между строками)
     for (int y = 0; y < final_height; ++y) {
         for (int x = 0; x < final_width; ++x) {
             // Проверяем, внутри ли круга
@@ -227,21 +221,24 @@ extern "C" EXPORT void crop_coin_planar(
             float dy = y - circle_center_y;
             float dist_sq = dx * dx + dy * dy;
 
+            // Индекс в выходном массиве (УПЛОТНЕННЫЙ: строки идут подряд)
+            size_t dst_idx = static_cast<size_t>(y) * final_width + x;
+
             if (dist_sq <= radius_sq) {
                 // Координата в исходном изображении
                 int src_x = crop_left + x;
                 int src_y = crop_top + y;
-
-                // Индекс в выходном массиве (начинается с 0, кроп в левом верхнем углу)
-                size_t dst_idx = static_cast<size_t>(y) * orig_w + x;
-                // Индекс в исходном массиве
                 size_t src_idx = static_cast<size_t>(src_y) * orig_w + src_x;
 
                 out_r[dst_idx] = in_r[src_idx];
                 out_g[dst_idx] = in_g[src_idx];
                 out_b[dst_idx] = in_b[src_idx];
+            } else {
+                // За пределами круга - цвет padding
+                out_r[dst_idx] = pad_r;
+                out_g[dst_idx] = pad_g;
+                out_b[dst_idx] = pad_b;
             }
-            // Иначе оставляем цвет фона (уже установлен в шаге 6)
         }
     }
 }
