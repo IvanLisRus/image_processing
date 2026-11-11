@@ -80,8 +80,8 @@ jobs:
           # 1. Копируем нашу библиотеку
           cp build/image_processing.so linux_x64/
           
-          # 2. Копируем только нужные runtime .so файлы
-          echo "=== Копирование OpenCV runtime ==="
+          # 2. Копируем OpenCV (release или debug версии)
+          echo "=== Копирование OpenCV ==="
           cp /usr/lib/x86_64-linux-gnu/libopencv_core.so.4.5.4 linux_x64/ 2>/dev/null || \
           cp /usr/lib/x86_64-linux-gnu/libopencv_core.so.4.5d linux_x64/ 2>/dev/null || true
           
@@ -93,14 +93,20 @@ jobs:
           cp /usr/lib/x86_64-linux-gnu/libtbb.so.2 linux_x64/ 2>/dev/null || \
           cp /usr/lib/x86_64-linux-gnu/libtbb.so.12 linux_x64/ 2>/dev/null || true
           
-          # 4. Итоговый список (без симлинков, только реальные файлы для FAT-флешки)
+          # 4. Копируем zlib (нужен для OpenCV)
+          echo "=== Копирование zlib ==="
+          cp /usr/lib/x86_64-linux-gnu/libz.so.1 linux_x64/ 2>/dev/null || true
+          
+          # 5. Итоговый список файлов
           echo "=== Итоговый список файлов ==="
           ls -lh linux_x64/
           
+          # 6. Проверка зависимостей
           echo "=== Проверка зависимостей ==="
           cd linux_x64
-          ldd image_processing.so | grep -E "(opencv|tbb|not found)" || echo "Все зависимости найдены"
+          ldd image_processing.so | grep -E "(opencv|tbb|libz|not found)" || echo "Все зависимости найдены"
           cd ..
+          
       
       - name: Upload Linux Binaries
         uses: actions/upload-artifact@v4
