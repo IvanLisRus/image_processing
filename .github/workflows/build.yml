@@ -80,7 +80,7 @@ jobs:
           # 1. Копируем нашу библиотеку
           cp build/image_processing.so linux_x64/
           
-          # 2. Копируем OpenCV (release или debug версии)
+          # 2. Копируем OpenCV
           echo "=== Копирование OpenCV ==="
           cp /usr/lib/x86_64-linux-gnu/libopencv_core.so.4.5.4 linux_x64/ 2>/dev/null || \
           cp /usr/lib/x86_64-linux-gnu/libopencv_core.so.4.5d linux_x64/ 2>/dev/null || true
@@ -88,23 +88,34 @@ jobs:
           cp /usr/lib/x86_64-linux-gnu/libopencv_imgproc.so.4.5.4 linux_x64/ 2>/dev/null || \
           cp /usr/lib/x86_64-linux-gnu/libopencv_imgproc.so.4.5d linux_x64/ 2>/dev/null || true
           
-          # 3. Копируем TBB
-          echo "=== Копирование TBB ==="
+          # 3. Копируем TBB и zlib (зависимости OpenCV)
+          echo "=== Копирование зависимостей OpenCV ==="
           cp /usr/lib/x86_64-linux-gnu/libtbb.so.2 linux_x64/ 2>/dev/null || \
           cp /usr/lib/x86_64-linux-gnu/libtbb.so.12 linux_x64/ 2>/dev/null || true
-          
-          # 4. Копируем zlib (нужен для OpenCV)
-          echo "=== Копирование zlib ==="
           cp /usr/lib/x86_64-linux-gnu/libz.so.1 linux_x64/ 2>/dev/null || true
           
-          # 5. Итоговый список файлов
+          # 4. 🔥 Вшиваем RPATH=$ORIGIN в библиотеки OpenCV, чтобы они тоже искали
+          #    свои зависимости (libtbb, libz) в той же папке
+          echo "=== Встраивание RPATH в OpenCV библиотеки ==="
+          sudo apt-get install -y patchelf
+          
+          cd linux_x64
+          for lib in libopencv_core.so.* libopencv_imgproc.so.*; do
+            if [ -f "$lib" ]; then
+              echo "  Patching: $lib"
+              patchelf --set-rpath '$ORIGIN' "$lib"
+            fi
+          done
+          cd ..
+          
+          # 5. Итоговый список
           echo "=== Итоговый список файлов ==="
           ls -lh linux_x64/
           
           # 6. Проверка зависимостей
           echo "=== Проверка зависимостей ==="
           cd linux_x64
-          ldd image_processing.so | grep -E "(opencv|tbb|libz|not found)" || echo "Все зависимости найдены"
+          ldd image_processing.so
           cd ..
           
       
