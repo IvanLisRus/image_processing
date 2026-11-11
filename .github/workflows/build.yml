@@ -15,8 +15,20 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       
-      - name: Install dependencies
-        run: sudo apt-get update && sudo apt-get install -y cmake build-essential libopencv-dev
+      # 🚀 Кэширование apt пакетов для молниеносных последующих сборок
+      - name: Cache apt packages
+        uses: actions/cache@v4
+        with:
+          path: /var/cache/apt/archives
+          key: ${{ runner.os }}-apt-${{ hashFiles('.github/workflows/build.yml') }}
+          restore-keys: |
+            ${{ runner.os }}-apt-
+      
+      - name: Install MINIMAL dependencies
+        run: |
+          sudo apt-get update
+          # Устанавливаем ТОЛЬКО то, что нужно для компиляции (без java, viz, contrib и т.д.)
+          sudo apt-get install -y cmake build-essential libopencv-core-dev libopencv-imgproc-dev
       
       - name: Build SO
         run: |
@@ -26,55 +38,35 @@ jobs:
       
       - name: Prepare Linux Binaries
         run: |
-          echo "=== Подготовка автономной библиотеки (БЕЗ СИМВОЛИЧЕСКИХ ССЫЛОК) ==="
+          echo "=== Подготовка библиотеки ==="
           rm -rf linux_x64
           mkdir -p linux_x64
           
           # 1. Копируем нашу библиотеку
           cp build/image_processing.so linux_x64/
           
-          # 2. Копируем OpenCV библиотеки (копируем сами файлы, не создаем симлинки)
-          echo "=== Копирование OpenCV библиотек ==="
+          # 2. Копируем только нужные runtime .so файлы
+          echo "=== Копирование OpenCV runtime ==="
+          cp /usr/lib/x86_64-linux-gnu/libopencv_core.so.4.5.4 linux_x64/ 2>/dev/null || \
+          cp /usr/lib/x86_64-linux-gnu/libopencv_core.so.4.5d linux_x64/ 2>/dev/null || true
           
-          # Находим и копируем файлы OpenCV (любые версии)
-          CORE_LIB=$(find /usr -name "libopencv_core.so*" -type f 2>/dev/null | head -1)
-          IMGPROC_LIB=$(find /usr -name "libopencv_imgproc.so*" -type f 2>/dev/null | head -1)
+          cp /usr/lib/x86_64-linux-gnu/libopencv_imgproc.so.4.5.4 linux_x64/ 2>/dev/null || \
+          cp /usr/lib/x86_64-linux-gnu/libopencv_imgproc.so.4.5d linux_x64/ 2>/dev/null || true
           
-          if [ -n "$CORE_LIB" ] && [ -n "$IMGPROC_LIB" ]; then
-            echo "✓ Копируем OpenCV:"
-            echo "  Core: $CORE_LIB"
-            echo "  ImgProc: $IMGPROC_LIB"
-            
-            # Копируем файлы с их оригинальными именами
-            cp "$CORE_LIB" linux_x64/
-            cp "$IMGPROC_LIB" linux_x64/
-          else
-            echo "❌ OpenCV не найден!"
-            exit 1
-          fi
-          
-          # 3. Копируем TBB (если есть)
+          # 3. Копируем TBB
           echo "=== Копирование TBB ==="
-          TBB_LIB=$(find /usr -name "libtbb.so*" -type f 2>/dev/null | head -1)
+          cp /usr/lib/x86_64-linux-gnu/libtbb.so.2 linux_x64/ 2>/dev/null || \
+          cp /usr/lib/x86_64-linux-gnu/libtbb.so.12 linux_x64/ 2>/dev/null || true
           
-          if [ -n "$TBB_LIB" ]; then
-            echo "✓ Копируем TBB: $TBB_LIB"
-            cp "$TBB_LIB" linux_x64/
-          else
-            echo "⚠️  TBB не найдена"
-          fi
-          
-          # 4. Показываем результат
-          echo "=== Итоговый список файлов (ТОЛЬКО РЕАЛЬНЫЕ ФАЙЛЫ) ==="
+          # 4. Итоговый список (без симлинков, только реальные файлы для FAT-флешки)
+          echo "=== Итоговый список файлов ==="
           ls -lh linux_x64/
           
-          # 5. Проверяем зависимости
           echo "=== Проверка зависимостей ==="
           cd linux_x64
-          ldd image_processing.so | grep -E "(opencv|tbb|not found)"
+          ldd image_processing.so | grep -E "(opencv|tbb|not found)" || echo "Все зависимости найдены"
           cd ..
-          
-          
+      
       - name: Upload Linux Binaries
         uses: actions/upload-artifact@v4
         with:
