@@ -26,25 +26,42 @@ jobs:
       
       - name: Install MINIMAL dependencies
         run: |
-          echo "🔧 Исправление источников apt (обход бага GitHub Actions с Azure mirrors)..."
+          echo "🔧 Исправление сетевых проблем GitHub Actions..."
           
           # 1. Удаляем проблемный файл зеркал
           sudo rm -f /etc/apt/apt-mirrors.txt
           
-          # 2. Заменяем все упоминания 'mirror+file:/etc/apt/apt-mirrors.txt' на стандартный archive.ubuntu.com
-          sudo sed -i 's|mirror+file:/etc/apt/apt-mirrors.txt|http://archive.ubuntu.com/ubuntu|g' /etc/apt/sources.list
-          sudo sed -i 's|mirror+file:/etc/apt/apt-mirrors.txt|http://archive.ubuntu.com/ubuntu|g' /etc/apt/sources.list.d/*.list 2>/dev/null || true
+          # 2. Принудительно меняем зеркала на US (часто стабильнее) и убираем битые префиксы
+          sudo sed -i 's|azure\.archive\.ubuntu\.com|us.archive.ubuntu.com|g' /etc/apt/sources.list
+          sudo sed -i 's|archive\.ubuntu\.com|us.archive.ubuntu.com|g' /etc/apt/sources.list
+          sudo sed -i 's|mirror+file:/etc/apt/apt-mirrors.txt|http://us.archive.ubuntu.com/ubuntu|g' /etc/apt/sources.list
+          sudo sed -i 's|azure\.archive\.ubuntu\.com|us.archive.ubuntu.com|g' /etc/apt/sources.list.d/*.list 2>/dev/null || true
+          sudo sed -i 's|archive\.ubuntu\.com|us.archive.ubuntu.com|g' /etc/apt/sources.list.d/*.list 2>/dev/null || true
           
-          # 3. На всякий случай заменяем и прямые ссылки на azure
-          sudo sed -i 's|azure\.archive\.ubuntu\.com|archive.ubuntu.com|g' /etc/apt/sources.list
-          sudo sed -i 's|azure\.archive\.ubuntu\.com|archive.ubuntu.com|g' /etc/apt/sources.list.d/*.list 2>/dev/null || true
-          
-          # 4. Очищаем кэш списков пакетов, чтобы убрать битые записи
+          # 3. Агрессивная очистка кэша apt от битых загрузок
+          sudo apt-get clean
           sudo rm -rf /var/lib/apt/lists/*
           
+          # 4. Попытки обновления с изменением DNS при неудаче
           echo "🔄 Обновление списков пакетов..."
-          sudo apt-get update -y
+          for i in 1 2 3 4 5; do
+            echo "Попытка $i..."
+            if sudo apt-get update -y; then
+              echo "✅ apt-get update успешен!"
+              break
+            else
+              echo "⚠️ Попытка $i не удалась. Ждем 10 секунд..."
+              sleep 10
+              # На 3-й попытке меняем DNS на Google, если резолвер GitHub глючит
+              if [ $i -eq 3 ]; then
+                echo "🔄 Смена DNS на Google (8.8.8.8)..."
+                echo "nameserver 8.8.8.8" | sudo tee /etc/resolv.conf > /dev/null
+                echo "nameserver 8.8.4.4" | sudo tee -a /etc/resolv.conf > /dev/null
+              fi
+            fi
+          done
           
+          # 5. Установка пакетов
           echo "📦 Установка минимальных зависимостей..."
           sudo apt-get install -y cmake build-essential libopencv-core-dev libopencv-imgproc-dev
       
