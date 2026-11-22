@@ -148,7 +148,7 @@ extern "C" EXPORT void resize_cubic_planar(
 }
 
 // ============================================================================
-// 4. CROP COIN — вырезание кропа монеты
+// 4. CROP COIN — вырезание кропа монеты в форме СТРОГОГО КРУГА
 // ============================================================================
 extern "C" EXPORT void crop_coin_planar(
     const uint8_t* in_r, const uint8_t* in_g, const uint8_t* in_b,
@@ -163,78 +163,79 @@ extern "C" EXPORT void crop_coin_planar(
     if (!in_r || !in_g || !in_b || !out_r || !out_g || !out_b || !crop_w || !crop_h || !is_fully_visible) {
         return;
     }
-    if (orig_w <= 0 || orig_h <= 0) {
-        *crop_w = 0;
-        *crop_h = 0;
-        *is_fully_visible = 0;
+    if (orig_w <= 0 || orig_h <= 0 || width <= 0.0f || height <= 0.0f) {
+        *crop_w = 0; *crop_h = 0; *is_fully_visible = 0;
         return;
     }
 
-    // 1. Денормализация координат
+    // 1. Денормализация координат центра монеты
     float cx = center_x * orig_w;
     float cy = center_y * orig_h;
-    float w_px = width * orig_w;
-    float h_px = height * orig_h;
 
-    // 2. Диаметр = MAX(ширина, высота)
-    float diameter = std::max(w_px, h_px);
-    float radius = diameter / 2.0f;
+    // 2. Расчет радиуса круга на основе максимальной стороны детекции
+    float diameter_px = std::max(width * orig_w, height * orig_h);
+    float radius = diameter_px / 2.0f;
 
-    // 3. Bounding box монеты
-    int left = static_cast<int>(std::round(cx - radius));
-    int top = static_cast<int>(std::round(cy - radius));
-    int right = static_cast<int>(std::round(cx + radius));
-    int bottom = static_cast<int>(std::round(cy + radius));
+    // 3. Вычисление ЦЕЛОЧИСЛЕННЫХ теоретических границ описанного квадрата.
+    // floor и ceil гарантируют, что математический круг со всеми своими пикселями
+    // гарантированно поместится внутри области [left, right] и [top, bottom].
+    int left   = static_cast<int>(std::floor(cx - radius));
+    int top    = static_cast<int>(std::floor(cy - radius));
+    int right  = static_cast<int>(std::ceil(cx + radius));
+    int bottom = static_cast<int>(std::ceil(cy + radius));
 
-    // 4. Проверка видимости
+    // 4. Определение ПОЛНОЙ ВИДИМОСТИ круга.
+    // Если описанный квадрат касается или выходит за реальные пиксели изображения [0, orig_w-1],
+    // значит, математический круг монеты гарантированно усечен краем кадра.
     bool fully_visible = (left >= 0) && (right < orig_w) && (top >= 0) && (bottom < orig_h);
     *is_fully_visible = fully_visible ? 1 : 0;
 
-    // 5. Обрезаем по границам изображения
-    int crop_left = std::max(0, left);
-    int crop_top = std::max(0, top);
-    int crop_right = std::min(orig_w - 1, right);
-    int crop_bottom = std::min(orig_h - 1, bottom);
+    // 5. Размеры выходного квадратного массива, в который будет вписан круг
+    int side = std::max(right - left + 1, bottom - top + 1);
+    *crop_w = side;
+    *crop_h = side;
 
-    int final_width = crop_right - crop_left + 1;
-    int final_height = crop_bottom - crop_top + 1;
-
-    if (final_width <= 0 || final_height <= 0) {
-        *crop_w = 0;
-        *crop_h = 0;
-        return;
-    }
-
-    *crop_w = final_width;
-    *crop_h = final_height;
-
-    // 6. Центр круга монеты в координатах кропа
-    float circle_center_x = cx - crop_left;
-    float circle_center_y = cy - crop_top;
     float radius_sq = radius * radius;
 
-    // 7. Копируем пиксели кропа УПЛОТНЕННО (без разрывов между строками)
-    for (int y = 0; y < final_height; ++y) {
-        for (int x = 0; x < final_width; ++x) {
-            // Проверяем, внутри ли круга
-            float dx = x - circle_center_x;
-            float dy = y - circle_center_y;
-            float dist_sq = dx * dx + dy * dy;
+    // 6. Цикл по индексам ВЫХОДНОЙ КВАДРАТНОЙ матрицы
+    for (int y = 0; y < side; ++y) {
+        // Координата Y текущего пикселя на исходном изображении
+        int src_y = top + y;
+        bool y_inside = (src_y >= 0 && src_y < orig_h);
+        
+        size_t src_row_offset = y_inside ? (static_cast<size_t>(src_y) * orig_w) : 0;
+        size_t dst_row_offset = static_cast<size_t>(y) * side;
 
-            // Индекс в выходном массиве (УПЛОТНЕННЫЙ: строки идут подряд)
-            size_t dst_idx = static_cast<size_t>(y) * final_width + x;
+        // Вычисляем расстояние по Y от субпиксельного центра круга (float)
+        // Добавление 0.5f смещает расчет в центр текущего пикселя для точности маскирования
+        float real_y = static_cast<float>(src_y) + 0.5f;
+        float dy = real_y - cy;
+        float dy_sq = dy * dy;
 
-            if (dist_sq <= radius_sq) {
-                // Координата в исходном изображении
-                int src_x = crop_left + x;
-                int src_y = crop_top + y;
-                size_t src_idx = static_cast<size_t>(src_y) * orig_w + src_x;
+        for (int x = 0; x < side; ++x) {
+            int src_x = left + x;
+            size_t dst_idx = dst_row_offset + x;
 
-                out_r[dst_idx] = in_r[src_idx];
-                out_g[dst_idx] = in_g[src_idx];
-                out_b[dst_idx] = in_b[src_idx];
+            // Вычисляем расстояние по X от субпиксельного центра круга
+            float real_x = static_cast<float>(src_x) + 0.5f;
+            float dx = real_x - cx;
+
+            // КРИТИЧЕСКИЙ ШАГ: Проверяем, попадает ли пиксель в СТРОГИЙ МАТЕМАТИЧЕСКИЙ КРУГ
+            if ((dx * dx + dy_sq) <= radius_sq) {
+                // Если мы внутри круга, проверяем физическое наличие пикселя в исходном кадре
+                if (y_inside && (src_x >= 0 && src_x < orig_w)) {
+                    size_t src_idx = src_row_offset + src_x;
+                    out_r[dst_idx] = in_r[src_idx];
+                    out_g[dst_idx] = in_g[src_idx];
+                    out_b[dst_idx] = in_b[src_idx];
+                } else {
+                    // Точка принадлежит кругу монеты, но физически отрезана краем кадра
+                    out_r[dst_idx] = pad_r;
+                    out_g[dst_idx] = pad_g;
+                    out_b[dst_idx] = pad_b;
+                }
             } else {
-                // За пределами круга - цвет padding
+                // Точка находится в углах квадрата за пределами круга монеты
                 out_r[dst_idx] = pad_r;
                 out_g[dst_idx] = pad_g;
                 out_b[dst_idx] = pad_b;
@@ -242,6 +243,7 @@ extern "C" EXPORT void crop_coin_planar(
         }
     }
 }
+
 
 // ============================================================================
 // 5. ROTATE COIN — поворот кропа монеты
