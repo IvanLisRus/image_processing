@@ -1,6 +1,7 @@
 #include <opencv2/opencv.hpp>
 #include <algorithm>
 #include <cstdint>
+#include <cstddef>
 #include <cmath>
 #include <cstring>
 #include <vector>
@@ -11,6 +12,7 @@
 #else
     #define EXPORT __attribute__((visibility("default")))
 #endif
+
 
 // ============================================================================
 // 1. LETTERBOX RESIZE (INTER_LINEAR)
@@ -65,6 +67,7 @@ extern "C" EXPORT void letterbox_resize_planar(
     *out_top = top;
 }
 
+
 // ============================================================================
 // 2. LETTERBOX RESIZE (INTER_CUBIC) — для совместимости с обучением
 // ============================================================================
@@ -118,6 +121,7 @@ extern "C" EXPORT void letterbox_resize_cubic_planar(
     *out_top = top;
 }
 
+
 // ============================================================================
 // 3. SIMPLE RESIZE (INTER_CUBIC) — простой resize без letterbox
 // ============================================================================
@@ -147,14 +151,14 @@ extern "C" EXPORT void resize_cubic_planar(
     cv::resize(src_b, dst_b, cv::Size(target_w, target_h), 0, 0, cv::INTER_CUBIC);
 }
 
+
 // ============================================================================
 // 4. CROP COIN — вырезание кропа монеты в форме СТРОГОГО КРУГА
 // ============================================================================
 extern "C" EXPORT void crop_coin_planar(
     const uint8_t* in_r, const uint8_t* in_g, const uint8_t* in_b,
     int32_t orig_w, int32_t orig_h,
-    float center_x, float center_y,
-    float width, float height,
+    float center_x, float center_y, float width, float height,
     uint8_t pad_r, uint8_t pad_g, uint8_t pad_b,
     uint8_t* out_r, uint8_t* out_g, uint8_t* out_b,
     int32_t* crop_w, int32_t* crop_h,
@@ -163,8 +167,11 @@ extern "C" EXPORT void crop_coin_planar(
     if (!in_r || !in_g || !in_b || !out_r || !out_g || !out_b || !crop_w || !crop_h || !is_fully_visible) {
         return;
     }
+
     if (orig_w <= 0 || orig_h <= 0 || width <= 0.0f || height <= 0.0f) {
-        *crop_w = 0; *crop_h = 0; *is_fully_visible = 0;
+        *crop_w = 0;
+        *crop_h = 0;
+        *is_fully_visible = 0;
         return;
     }
 
@@ -176,22 +183,31 @@ extern "C" EXPORT void crop_coin_planar(
     float diameter_px = std::max(width * orig_w, height * orig_h);
     float radius = diameter_px / 2.0f;
 
-    // 3. Вычисление ЦЕЛОЧИСЛЕННЫХ теоретических границ описанного квадрата.
-    // floor и ceil гарантируют, что математический круг со всеми своими пикселями
-    // гарантированно поместится внутри области [left, right] и [top, bottom].
-    int left   = static_cast<int>(std::floor(cx - radius));
-    int top    = static_cast<int>(std::floor(cy - radius));
-    int right  = static_cast<int>(std::ceil(cx + radius));
-    int bottom = static_cast<int>(std::ceil(cy + radius));
+    // 3. Вычисление включительных целочисленных границ [left, right] и [top, bottom].
+    // Вычитание 1 из ceil переводит непрерывную координату в индекс последнего пикселя.
+    // Эпсилон (1e-4f) защищает от погрешностей округления float (например, 1209.0001f -> 1210).
+    constexpr float eps = 1e-4f;
+    int left   = static_cast<int>(std::floor(cx - radius + eps));
+    int top    = static_cast<int>(std::floor(cy - radius + eps));
+    int right  = static_cast<int>(std::ceil(cx + radius - eps)) - 1;
+    int bottom = static_cast<int>(std::ceil(cy + radius - eps)) - 1;
 
-    // 4. Определение ПОЛНОЙ ВИДИМОСТИ круга.
-    // Если описанный квадрат касается или выходит за реальные пиксели изображения [0, orig_w-1],
-    // значит, математический круг монеты гарантированно усечен краем кадра.
+    // 4. Определение ПОЛНОЙ ВИДИМОСТИ круга в исходном кадре.
     bool fully_visible = (left >= 0) && (right < orig_w) && (top >= 0) && (bottom < orig_h);
     *is_fully_visible = fully_visible ? 1 : 0;
 
-    // 5. Размеры выходного квадратного массива, в который будет вписан круг
+    // 5. Размеры выходного квадратного массива.
+    // Жестко ограничиваем сторону меньшим измерением исходного изображения,
+    // чтобы исключить переполнение выходного буфера при дробном сдвиге центра или width >= 1.0.
+    int max_allowed_side = std::min(orig_w, orig_h);
     int side = std::max(right - left + 1, bottom - top + 1);
+
+    if (side > max_allowed_side) {
+        side = max_allowed_side;
+        left = static_cast<int>(std::round(cx - side / 2.0f));
+        top  = static_cast<int>(std::round(cy - side / 2.0f));
+    }
+
     *crop_w = side;
     *crop_h = side;
 
@@ -199,15 +215,12 @@ extern "C" EXPORT void crop_coin_planar(
 
     // 6. Цикл по индексам ВЫХОДНОЙ КВАДРАТНОЙ матрицы
     for (int y = 0; y < side; ++y) {
-        // Координата Y текущего пикселя на исходном изображении
         int src_y = top + y;
         bool y_inside = (src_y >= 0 && src_y < orig_h);
-        
         size_t src_row_offset = y_inside ? (static_cast<size_t>(src_y) * orig_w) : 0;
         size_t dst_row_offset = static_cast<size_t>(y) * side;
 
-        // Вычисляем расстояние по Y от субпиксельного центра круга (float)
-        // Добавление 0.5f смещает расчет в центр текущего пикселя для точности маскирования
+        // Смещение на 0.5f переводит расчет расстояния в геометрический центр текущего пикселя
         float real_y = static_cast<float>(src_y) + 0.5f;
         float dy = real_y - cy;
         float dy_sq = dy * dy;
@@ -216,26 +229,17 @@ extern "C" EXPORT void crop_coin_planar(
             int src_x = left + x;
             size_t dst_idx = dst_row_offset + x;
 
-            // Вычисляем расстояние по X от субпиксельного центра круга
             float real_x = static_cast<float>(src_x) + 0.5f;
             float dx = real_x - cx;
 
-            // КРИТИЧЕСКИЙ ШАГ: Проверяем, попадает ли пиксель в СТРОГИЙ МАТЕМАТИЧЕСКИЙ КРУГ
-            if ((dx * dx + dy_sq) <= radius_sq) {
-                // Если мы внутри круга, проверяем физическое наличие пикселя в исходном кадре
-                if (y_inside && (src_x >= 0 && src_x < orig_w)) {
-                    size_t src_idx = src_row_offset + src_x;
-                    out_r[dst_idx] = in_r[src_idx];
-                    out_g[dst_idx] = in_g[src_idx];
-                    out_b[dst_idx] = in_b[src_idx];
-                } else {
-                    // Точка принадлежит кругу монеты, но физически отрезана краем кадра
-                    out_r[dst_idx] = pad_r;
-                    out_g[dst_idx] = pad_g;
-                    out_b[dst_idx] = pad_b;
-                }
+            // Проверяем попадание в строгий математический круг И физическое наличие пикселя в кадре
+            if ((dx * dx + dy_sq) <= radius_sq && y_inside && (src_x >= 0 && src_x < orig_w)) {
+                size_t src_idx = src_row_offset + src_x;
+                out_r[dst_idx] = in_r[src_idx];
+                out_g[dst_idx] = in_g[src_idx];
+                out_b[dst_idx] = in_b[src_idx];
             } else {
-                // Точка находится в углах квадрата за пределами круга монеты
+                // Точка либо за пределами круга монеты, либо отрезана краем исходного изображения
                 out_r[dst_idx] = pad_r;
                 out_g[dst_idx] = pad_g;
                 out_b[dst_idx] = pad_b;
@@ -283,6 +287,7 @@ extern "C" EXPORT void rotate_coin_planar(
     cv::warpAffine(src_b, dst_b, rotation_matrix, cv::Size(orig_w, orig_h),
                    cv::INTER_LINEAR, cv::BORDER_CONSTANT, cv::Scalar(pad_b));
 }
+
 
 // ============================================================================
 // 6. GAMMA CORRECTION — ПРОДАКШН-ВЕРСИЯ
@@ -337,6 +342,7 @@ extern "C" EXPORT void apply_gamma_planar(
     cv::LUT(src_b, lut_mat, dst_b);
 }
 
+
 // ============================================================================
 // 7. CLAHE — контрастное улучшение
 // ============================================================================
@@ -382,6 +388,7 @@ extern "C" EXPORT void apply_clahe_planar(
     };
     cv::split(rgb_mat, out_mats);
 }
+
 
 // ============================================================================
 // 8. GAMMA + CLAHE — комбинированная (максимально быстрая)
